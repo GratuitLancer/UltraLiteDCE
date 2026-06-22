@@ -1,0 +1,9 @@
+model:
+  name: ultralite_dce
+  width: 8
+  num_blocks: 3
+  num_iterations: 4
+  curve_mode: per_step
+  prediction_scale: 0.5
+  convolution: depthwise_separable
+

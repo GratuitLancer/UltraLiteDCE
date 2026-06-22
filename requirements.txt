@@ -1,0 +1,13 @@
+torch>=2.2
+numpy>=1.26
+Pillow>=10.0
+PyYAML>=6.0
+tensorboard>=2.15
+pytest>=8.0
+onnx>=1.15
+onnxruntime>=1.17
+onnxscript>=0.5
+
+# Optional quality metrics:
+# lpips>=0.1.4
+# pyiqa>=0.1.13

@@ -1,0 +1,66 @@
+model:
+  name: ultralite_dce
+  width: 8
+  num_blocks: 3
+  num_iterations: 4
+  curve_mode: shared
+  prediction_scale: 0.5
+  convolution: depthwise_separable
+
+data:
+  root: data/LOL
+  train_low: our485/low
+  train_high: our485/high
+  test_low: eval15/low
+  test_high: eval15/high
+  val_ratio: 0.1
+  horizontal_flip: true
+  vertical_flip: false
+  rotate_90: true
+  synthetic: false
+  synthetic_train_size: 16
+  synthetic_val_size: 4
+
+loss:
+  spatial: 1.0
+  exposure: 1.0
+  color: 0.5
+  curve_tv: 20.0
+  l1: 1.0
+  ssim: 0.2
+  edge: 0.1
+  saturation: 0.1
+  exposure_target: 0.6
+  saturation_threshold: 0.95
+
+training:
+  epochs: 100
+  batch_size: 8
+  crop_size: 256
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  num_workers: 4
+  amp: true
+  grad_clip: 1.0
+  seed: 42
+  device: auto
+  output_dir: outputs
+  preview_interval: 5
+  checkpoint_interval: 1
+
+evaluation:
+  output_dir: outputs/evaluation
+  lpips: false
+  niqe: false
+
+benchmark:
+  sizes: [256, 512]
+  warmup: 20
+  iterations: 100
+  threads: 1
+
+onnx:
+  opset: 18
+  error_threshold: 0.0001
+  warmup: 20
+  iterations: 100
