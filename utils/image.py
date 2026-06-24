@@ -98,3 +98,33 @@ def save_training_preview(
     path.parent.mkdir(parents=True, exist_ok=True)
     output.save(path)
 
+
+def save_curve_preview(
+    curve: torch.Tensor,
+    path: str | Path,
+    max_items: int = 4,
+) -> None:
+    """Save curve maps as RGB previews, mapping A from [-1, 1] to [0, 1]."""
+    curve = curve.detach().float().cpu()
+    if curve.ndim != 4:
+        raise ValueError("curve must have shape BxCxHxW")
+    if curve.shape[1] % 3 == 0:
+        curve_rgb = curve.reshape(curve.shape[0], -1, 3, curve.shape[-2], curve.shape[-1])
+        curve_rgb = curve_rgb.mean(dim=1)
+    elif curve.shape[1] >= 3:
+        curve_rgb = curve[:, :3]
+    else:
+        curve_rgb = curve.mean(dim=1, keepdim=True).expand(-1, 3, -1, -1)
+    curve_rgb = (curve_rgb + 1.0) * 0.5
+
+    rows = [tensor_to_pil(curve_rgb[index]) for index in range(min(curve_rgb.shape[0], max_items))]
+    width = max(image.width for image in rows)
+    height = sum(image.height for image in rows)
+    output = Image.new("RGB", (width, height), "black")
+    y = 0
+    for image in rows:
+        output.paste(image, (0, y))
+        y += image.height
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    output.save(path)

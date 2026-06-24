@@ -3,7 +3,7 @@ model:
   width: 8
   num_blocks: 3
   num_iterations: 4
-  curve_mode: shared
+  curve_mode: per_step
   prediction_scale: 0.5
   convolution: depthwise_separable
   curve_color_mode: coupled
@@ -24,21 +24,19 @@ data:
   vertical_flip: false
   rotate_90: true
   synthetic: false
-  synthetic_train_size: 16
-  synthetic_val_size: 4
 
 loss:
-  spatial: 0.1
-  exposure: 0.1
-  color: 0.1
-  curve_tv: 20.0
-  l1: 1.0
+  spatial: 1.0
+  exposure: 0.3
+  color: 0.5
+  curve_tv: 50.0
+  l1: 2.0
   ssim: 0.5
-  edge: 0.1
-  chromaticity: 1.0
-  dark_smooth: 0.0
-  saturation: 0.1
-  exposure_target: 0.6
+  edge: 0.2
+  chromaticity: 0.0
+  dark_smooth: 0.2
+  saturation: 0.2
+  exposure_target: 0.55
   dark_threshold: 0.25
   saturation_threshold: 0.95
 
@@ -54,12 +52,12 @@ training:
   grad_clip: 1.0
   seed: 42
   device: auto
-  output_dir: outputs
+  output_dir: outputs/ablation/optimized_loss
   preview_interval: 5
   checkpoint_interval: 1
 
 evaluation:
-  output_dir: outputs/evaluation
+  output_dir: outputs/ablation/evaluation_optimized_loss
   lpips: false
   niqe: false
 

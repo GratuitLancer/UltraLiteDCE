@@ -96,6 +96,30 @@ class EdgePreservationLoss(nn.Module):
         return F.l1_loss(pred_x, target_x) + F.l1_loss(pred_y, target_y)
 
 
+class DarkRegionSmoothnessLoss(nn.Module):
+    """Suppress high-frequency enhanced-image variation only in dark input areas."""
+
+    def __init__(self, threshold: float = 0.25) -> None:
+        super().__init__()
+        self.threshold = float(threshold)
+
+    def forward(self, low: torch.Tensor, enhanced: torch.Tensor) -> torch.Tensor:
+        if low.shape != enhanced.shape:
+            raise ValueError("DarkRegionSmoothnessLoss expects low/enhanced with same shape")
+        gray = low.mean(dim=1, keepdim=True)
+        dark_mask = (gray < self.threshold).to(dtype=enhanced.dtype).detach()
+        loss = enhanced.new_zeros(())
+        if enhanced.shape[-1] > 1:
+            dx = torch.abs(enhanced[:, :, :, 1:] - enhanced[:, :, :, :-1])
+            mask_x = dark_mask[:, :, :, 1:] * dark_mask[:, :, :, :-1]
+            loss = loss + torch.mean(dx * mask_x)
+        if enhanced.shape[-2] > 1:
+            dy = torch.abs(enhanced[:, :, 1:, :] - enhanced[:, :, :-1, :])
+            mask_y = dark_mask[:, :, 1:, :] * dark_mask[:, :, :-1, :]
+            loss = loss + torch.mean(dy * mask_y)
+        return loss
+
+
 class ChromaticityLoss(nn.Module):
     """Match RGB proportions while largely ignoring brightness differences."""
 

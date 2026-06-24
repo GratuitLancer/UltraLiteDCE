@@ -6,7 +6,12 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .supervised import ChromaticityLoss, EdgePreservationLoss, SSIMLoss
+from .supervised import (
+    ChromaticityLoss,
+    DarkRegionSmoothnessLoss,
+    EdgePreservationLoss,
+    SSIMLoss,
+)
 from .zero_reference import (
     ColorConstancyLoss,
     ExposureControlLoss,
@@ -27,7 +32,8 @@ class CombinedLoss(nn.Module):
             "l1": float(cfg.get("l1", 1.0)),
             "ssim": float(cfg.get("ssim", 0.2)),
             "edge": float(cfg.get("edge", 0.1)),
-            "chromaticity": float(cfg.get("chromaticity", 1.0)),
+            "chromaticity": float(cfg.get("chromaticity", 0.0)),
+            "dark_smooth": float(cfg.get("dark_smooth", 0.0)),
             "saturation": float(cfg.get("saturation", 0.1)),
         }
         self.spatial = SpatialConsistencyLoss()
@@ -37,6 +43,7 @@ class CombinedLoss(nn.Module):
         self.ssim = SSIMLoss()
         self.edge = EdgePreservationLoss()
         self.chromaticity = ChromaticityLoss()
+        self.dark_smooth = DarkRegionSmoothnessLoss(float(cfg.get("dark_threshold", 0.25)))
         self.saturation_threshold = float(cfg.get("saturation_threshold", 0.95))
 
     def forward(
@@ -61,6 +68,7 @@ class CombinedLoss(nn.Module):
             "ssim": self.ssim(enhanced, high),
             "edge": self.edge(enhanced, high),
             "chromaticity": self.chromaticity(enhanced, high),
+            "dark_smooth": self.dark_smooth(low, enhanced),
             "saturation": F.relu(enhanced - self.saturation_threshold).mean(),
         }
         total = sum(self.weights[name] * value for name, value in losses.items())

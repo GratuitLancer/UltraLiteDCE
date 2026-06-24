@@ -30,8 +30,10 @@ def test_synthetic_training_smoke(tmp_path: Path) -> None:
             "ssim": 0.2,
             "edge": 0.1,
             "chromaticity": 1.0,
+            "dark_smooth": 0.2,
             "saturation": 0.1,
             "exposure_target": 0.6,
+            "dark_threshold": 0.25,
             "saturation_threshold": 0.95,
         },
         "training": {
@@ -55,4 +57,11 @@ def test_synthetic_training_smoke(tmp_path: Path) -> None:
     assert result["synthetic"] is True
     assert (tmp_path / "training" / "checkpoints" / "last.pt").is_file()
     assert (tmp_path / "training" / "checkpoints" / "best.pt").is_file()
+    assert (tmp_path / "training" / "checkpoints" / "best_ssim.pt").is_file()
+    assert (tmp_path / "training" / "checkpoints" / "final.pt").is_file()
     assert (tmp_path / "training" / "train_log.csv").is_file()
+    assert (tmp_path / "training" / "train_loss.csv").is_file()
+    assert (tmp_path / "training" / "validation_loss.csv").is_file()
+    assert (tmp_path / "training" / "previews" / "epoch_0001_low_enhanced_gt.png").is_file()
+    assert (tmp_path / "training" / "previews" / "epoch_0001_enhanced.png").is_file()
+    assert (tmp_path / "training" / "previews" / "epoch_0001_curve_map.png").is_file()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from losses import ChromaticityLoss, CombinedLoss, ssim_index
+from losses import ChromaticityLoss, CombinedLoss, DarkRegionSmoothnessLoss, ssim_index
 from models import UltraLiteDCE
 
 
@@ -17,8 +17,10 @@ def _config() -> dict:
             "ssim": 0.2,
             "edge": 0.1,
             "chromaticity": 1.0,
+            "dark_smooth": 0.2,
             "saturation": 0.1,
             "exposure_target": 0.6,
+            "dark_threshold": 0.25,
             "saturation_threshold": 0.95,
         }
     }
@@ -41,6 +43,7 @@ def test_all_losses_are_finite_and_backward_works() -> None:
         "ssim",
         "edge",
         "chromaticity",
+        "dark_smooth",
         "saturation",
     }
     assert all(torch.isfinite(value) for value in components.values())
@@ -83,3 +86,13 @@ def test_chromaticity_loss_detects_color_cast_not_brightness() -> None:
     purple_cast[:, 2] *= 1.5
     assert loss(brightness_changed, target).item() < 1e-5
     assert loss(purple_cast, target).item() > 0.05
+
+
+def test_dark_region_smoothness_targets_dark_inputs() -> None:
+    loss = DarkRegionSmoothnessLoss(threshold=0.25)
+    enhanced = torch.zeros(1, 3, 8, 8)
+    enhanced[:, :, :, ::2] = 1.0
+    dark_low = torch.zeros_like(enhanced) + 0.05
+    bright_low = torch.zeros_like(enhanced) + 0.8
+    assert loss(dark_low, enhanced).item() > 0.0
+    assert loss(bright_low, enhanced).item() == 0.0

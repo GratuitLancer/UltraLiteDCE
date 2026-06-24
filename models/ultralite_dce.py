@@ -24,6 +24,9 @@ class UltraLiteDCE(nn.Module):
         curve_color_mode: str = "coupled",
         curve_chroma_scale: float = 0.05,
         identity_init: bool = True,
+        use_dark_denoise_head: bool = False,
+        dark_denoise_threshold: float = 0.25,
+        dark_denoise_strength: float = 0.05,
     ) -> None:
         super().__init__()
         if width < 1 or num_blocks < 0:
@@ -48,6 +51,11 @@ class UltraLiteDCE(nn.Module):
         self.curve_color_mode = curve_color_mode
         self.curve_chroma_scale = float(curve_chroma_scale)
         self.identity_init = bool(identity_init)
+        self.use_dark_denoise_head = bool(use_dark_denoise_head)
+        self.dark_denoise_threshold = float(dark_denoise_threshold)
+        self.dark_denoise_strength = float(dark_denoise_strength)
+        if not 0.0 <= self.dark_denoise_strength <= 1.0:
+            raise ValueError("dark_denoise_strength must be in [0, 1]")
 
         self.stem = nn.Sequential(
             nn.Conv2d(3, width, kernel_size=3, padding=1, bias=True),
@@ -58,6 +66,13 @@ class UltraLiteDCE(nn.Module):
         )
         curve_channels = 3 if curve_mode == "shared" else 3 * num_iterations
         self.curve_head = nn.Conv2d(width, curve_channels, kernel_size=1, bias=True)
+        self.dark_denoise_head: nn.Module | None = None
+        if self.use_dark_denoise_head:
+            self.dark_denoise_head = nn.Sequential(
+                make_conv_block(convolution, 3, width),
+                make_conv_block(convolution, width, width),
+                nn.Conv2d(width, 3, kernel_size=1, bias=True),
+            )
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
@@ -69,6 +84,11 @@ class UltraLiteDCE(nn.Module):
         if self.identity_init:
             nn.init.zeros_(self.curve_head.weight)
             nn.init.zeros_(self.curve_head.bias)
+            if self.dark_denoise_head is not None:
+                final = self.dark_denoise_head[-1]
+                if isinstance(final, nn.Conv2d):
+                    nn.init.zeros_(final.weight)
+                    nn.init.zeros_(final.bias)
 
     def _parameterize_curve(self, logits: torch.Tensor) -> torch.Tensor:
         if self.curve_color_mode == "independent":
@@ -117,6 +137,15 @@ class UltraLiteDCE(nn.Module):
             num_iterations=self.num_iterations,
             curve_mode=self.curve_mode,
         )
+        if self.dark_denoise_head is not None:
+            gray = image.mean(dim=1, keepdim=True)
+            dark_mask = (gray < self.dark_denoise_threshold).to(dtype=enhanced.dtype)
+            noise_residual = torch.tanh(self.dark_denoise_head(enhanced))
+            enhanced = torch.clamp(
+                enhanced - noise_residual * dark_mask * self.dark_denoise_strength,
+                0.0,
+                1.0,
+            )
         return enhanced, curve
 
     def forward(self, image: torch.Tensor) -> torch.Tensor:
@@ -129,7 +158,10 @@ class UltraLiteDCE(nn.Module):
             f"prediction_scale={self.prediction_scale}, convolution={self.convolution}, "
             f"curve_color_mode={self.curve_color_mode}, "
             f"curve_chroma_scale={self.curve_chroma_scale}, "
-            f"identity_init={self.identity_init}"
+            f"identity_init={self.identity_init}, "
+            f"use_dark_denoise_head={self.use_dark_denoise_head}, "
+            f"dark_denoise_threshold={self.dark_denoise_threshold}, "
+            f"dark_denoise_strength={self.dark_denoise_strength}"
         )
 
 
@@ -148,4 +180,7 @@ def build_model(config: Mapping[str, Any]) -> UltraLiteDCE:
         curve_color_mode=str(model_cfg.get("curve_color_mode", "coupled")),
         curve_chroma_scale=float(model_cfg.get("curve_chroma_scale", 0.05)),
         identity_init=bool(model_cfg.get("identity_init", True)),
+        use_dark_denoise_head=bool(model_cfg.get("use_dark_denoise_head", False)),
+        dark_denoise_threshold=float(model_cfg.get("dark_denoise_threshold", 0.25)),
+        dark_denoise_strength=float(model_cfg.get("dark_denoise_strength", 0.05)),
     )

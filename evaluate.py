@@ -13,7 +13,12 @@ from torch.utils.data import DataLoader
 from datasets import LOLPairedDataset
 from models import build_model
 from train import resolve_device
-from utils.benchmark import checkpoint_size_bytes, count_parameters, estimate_macs
+from utils.benchmark import (
+    benchmark_pytorch_cpu,
+    checkpoint_size_bytes,
+    count_parameters,
+    estimate_macs,
+)
 from utils.checkpoint import load_checkpoint
 from utils.config import load_project_config
 from utils.image import save_comparison, save_image
@@ -69,6 +74,19 @@ def evaluate(config: dict[str, Any], checkpoint_path: str, device_name: str | No
     }
     for name in metric_names:
         summary[name] = statistics.fmean(float(row[name]) for row in rows)
+
+    bench_cfg = config.get("benchmark", {})
+    for size in bench_cfg.get("sizes", [256, 512]):
+        result = benchmark_pytorch_cpu(
+            model,
+            int(size),
+            warmup=int(bench_cfg.get("warmup", 20)),
+            iterations=int(bench_cfg.get("iterations", 100)),
+            threads=int(bench_cfg.get("threads", 1)),
+        )
+        summary[f"cpu_ms_{size}"] = result["mean_ms"]
+        summary[f"cpu_std_ms_{size}"] = result["std_ms"]
+        summary[f"cpu_fps_{size}"] = result["fps"]
     with (output_dir / "summary.json").open("w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2)
     print(json.dumps(summary, indent=2))
@@ -102,4 +120,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

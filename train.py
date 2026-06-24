@@ -22,7 +22,7 @@ from losses import CombinedLoss
 from models import build_model
 from utils.checkpoint import load_checkpoint, save_checkpoint
 from utils.config import load_project_config, save_config
-from utils.image import save_training_preview
+from utils.image import save_curve_preview, save_image, save_training_preview
 from utils.metrics import paired_metrics
 from utils.seed import seed_everything, seed_worker
 
@@ -36,6 +36,7 @@ LOSS_NAMES = [
     "ssim",
     "edge",
     "chromaticity",
+    "dark_smooth",
     "saturation",
 ]
 
@@ -166,7 +167,10 @@ def validate(
     loader: DataLoader,
     criterion: CombinedLoss,
     device: torch.device,
-) -> tuple[dict[str, float], tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None]:
+) -> tuple[
+    dict[str, float],
+    tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None,
+]:
     model.eval()
     sums: dict[str, float] = defaultdict(float)
     sample_count = 0
@@ -184,7 +188,7 @@ def validate(
         for name, value in metrics.items():
             sums[f"val_{name}"] += value * batch_size
         if preview is None:
-            preview = (low.cpu(), enhanced.cpu(), high.cpu())
+            preview = (low.cpu(), enhanced.cpu(), high.cpu(), curve.cpu())
     if sample_count == 0:
         raise RuntimeError("Validation loader produced no samples")
     return {name: value / sample_count for name, value in sums.items()}, preview
@@ -249,6 +253,7 @@ def run_training(config: dict[str, Any], resume: str | None = None) -> dict[str,
     scaler = make_grad_scaler(amp_enabled and amp_dtype == torch.float16)
     start_epoch = 0
     best_psnr = -math.inf
+    best_ssim = -math.inf
 
     if resume:
         checkpoint = load_checkpoint(
@@ -261,6 +266,7 @@ def run_training(config: dict[str, Any], resume: str | None = None) -> dict[str,
         )
         start_epoch = int(checkpoint.get("epoch", -1)) + 1
         best_psnr = float(checkpoint.get("best_psnr", -math.inf))
+        best_ssim = float(checkpoint.get("best_ssim", -math.inf))
 
     writer = None
     try:
@@ -274,6 +280,11 @@ def run_training(config: dict[str, Any], resume: str | None = None) -> dict[str,
     csv_fields += [f"val_loss_{name}" for name in LOSS_NAMES]
     csv_fields += ["val_psnr", "val_ssim", "val_mae"]
     history_path = output_dir / "train_log.csv"
+    train_loss_path = output_dir / "train_loss.csv"
+    val_loss_path = output_dir / "validation_loss.csv"
+    train_loss_fields = ["epoch", "lr", *LOSS_NAMES]
+    val_loss_fields = ["epoch", "lr", *[f"val_loss_{name}" for name in LOSS_NAMES]]
+    val_loss_fields += ["val_psnr", "val_ssim", "val_mae"]
 
     for epoch in range(start_epoch, epochs):
         train_metrics = train_one_epoch(
@@ -297,6 +308,16 @@ def run_training(config: dict[str, Any], resume: str | None = None) -> dict[str,
             **val_metrics,
         }
         append_csv(history_path, row, csv_fields)
+        append_csv(
+            train_loss_path,
+            {"epoch": epoch + 1, "lr": learning_rate, **train_metrics},
+            train_loss_fields,
+        )
+        append_csv(
+            val_loss_path,
+            {"epoch": epoch + 1, "lr": learning_rate, **val_metrics},
+            val_loss_fields,
+        )
 
         if writer is not None:
             for name, value in row.items():
@@ -305,12 +326,30 @@ def run_training(config: dict[str, Any], resume: str | None = None) -> dict[str,
 
         preview_interval = int(train_cfg.get("preview_interval", 5))
         if preview is not None and ((epoch + 1) % preview_interval == 0 or epoch == start_epoch):
-            save_training_preview(*preview, preview_dir / f"epoch_{epoch + 1:04d}.png")
+            low_preview, enhanced_preview, high_preview, curve_preview = preview
+            save_training_preview(
+                low_preview,
+                enhanced_preview,
+                high_preview,
+                preview_dir / f"epoch_{epoch + 1:04d}_low_enhanced_gt.png",
+            )
+            save_image(
+                enhanced_preview[0],
+                preview_dir / f"epoch_{epoch + 1:04d}_enhanced.png",
+            )
+            save_curve_preview(
+                curve_preview,
+                preview_dir / f"epoch_{epoch + 1:04d}_curve_map.png",
+            )
 
         current_psnr = float(val_metrics["val_psnr"])
-        is_best = current_psnr > best_psnr
-        if is_best:
+        current_ssim = float(val_metrics["val_ssim"])
+        is_best_psnr = current_psnr > best_psnr
+        is_best_ssim = current_ssim > best_ssim
+        if is_best_psnr:
             best_psnr = current_psnr
+        if is_best_ssim:
+            best_ssim = current_ssim
         state = {
             "epoch": epoch,
             "model": model.state_dict(),
@@ -318,13 +357,17 @@ def run_training(config: dict[str, Any], resume: str | None = None) -> dict[str,
             "scheduler": scheduler.state_dict(),
             "scaler": scaler.state_dict(),
             "best_psnr": best_psnr,
+            "best_ssim": best_ssim,
             "config": config,
         }
         checkpoint_interval = int(train_cfg.get("checkpoint_interval", 1))
         if (epoch + 1) % checkpoint_interval == 0:
             save_checkpoint(state, checkpoint_dir / "last.pt")
-        if is_best:
+        if is_best_psnr:
             save_checkpoint(state, checkpoint_dir / "best.pt")
+            save_checkpoint(state, checkpoint_dir / "best_psnr.pt")
+        if is_best_ssim:
+            save_checkpoint(state, checkpoint_dir / "best_ssim.pt")
 
         print(
             f"Epoch {epoch + 1}/{epochs} "
@@ -334,9 +377,21 @@ def run_training(config: dict[str, Any], resume: str | None = None) -> dict[str,
 
     if writer is not None:
         writer.close()
+    final_state = {
+        "epoch": epochs - 1,
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "scaler": scaler.state_dict(),
+        "best_psnr": best_psnr,
+        "best_ssim": best_ssim,
+        "config": config,
+    }
+    save_checkpoint(final_state, checkpoint_dir / "final.pt")
     return {
         "output_dir": str(output_dir),
         "best_psnr": best_psnr,
+        "best_ssim": best_ssim,
         "epochs_completed": max(0, epochs - start_epoch),
         "synthetic": bool(config["data"].get("synthetic", False)),
     }

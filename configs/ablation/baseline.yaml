@@ -24,8 +24,6 @@ data:
   vertical_flip: false
   rotate_90: true
   synthetic: false
-  synthetic_train_size: 16
-  synthetic_val_size: 4
 
 loss:
   spatial: 0.1
@@ -54,12 +52,12 @@ training:
   grad_clip: 1.0
   seed: 42
   device: auto
-  output_dir: outputs
+  output_dir: outputs/ablation/baseline
   preview_interval: 5
   checkpoint_interval: 1
 
 evaluation:
-  output_dir: outputs/evaluation
+  output_dir: outputs/ablation/evaluation_baseline
   lpips: false
   niqe: false
 

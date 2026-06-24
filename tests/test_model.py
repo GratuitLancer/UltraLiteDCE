@@ -32,6 +32,15 @@ def test_identity_initialization_has_no_color_cast() -> None:
     assert torch.equal(enhanced, image)
 
 
+def test_optional_dark_denoise_head_preserves_identity_initialization() -> None:
+    model = UltraLiteDCE(use_dark_denoise_head=True, identity_init=True)
+    image = torch.rand(1, 3, 33, 35)
+    enhanced, curve = model.enhance(image)
+    assert enhanced.shape == image.shape
+    assert torch.count_nonzero(curve).item() == 0
+    assert torch.equal(enhanced, image)
+
+
 @pytest.mark.parametrize("curve_mode", ["shared", "per_step"])
 def test_coupled_curve_bounds_rgb_difference(curve_mode: str) -> None:
     scale = 0.1

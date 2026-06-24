@@ -9,6 +9,9 @@ model:
   curve_color_mode: independent
   curve_chroma_scale: 1.0
   identity_init: true
+  use_dark_denoise_head: false
+  dark_denoise_threshold: 0.25
+  dark_denoise_strength: 0.05
 
 data:
   root: data/LOL
@@ -31,8 +34,10 @@ loss:
   ssim: 0.2
   edge: 0.1
   chromaticity: 1.0
+  dark_smooth: 0.0
   saturation: 0.1
   exposure_target: 0.6
+  dark_threshold: 0.25
   saturation_threshold: 0.95
 
 training:
