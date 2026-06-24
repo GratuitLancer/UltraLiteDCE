@@ -6,6 +6,9 @@ model:
   curve_mode: shared
   prediction_scale: 0.5
   convolution: depthwise_separable
+  curve_color_mode: coupled
+  curve_chroma_scale: 0.05
+  identity_init: true
 
 data:
   root: data/LOL
@@ -22,13 +25,14 @@ data:
   synthetic_val_size: 4
 
 loss:
-  spatial: 1.0
-  exposure: 1.0
-  color: 0.5
+  spatial: 0.1
+  exposure: 0.1
+  color: 0.1
   curve_tv: 20.0
   l1: 1.0
-  ssim: 0.2
+  ssim: 0.5
   edge: 0.1
+  chromaticity: 1.0
   saturation: 0.1
   exposure_target: 0.6
   saturation_threshold: 0.95
@@ -41,6 +45,7 @@ training:
   weight_decay: 0.00001
   num_workers: 4
   amp: true
+  amp_dtype: bfloat16
   grad_clip: 1.0
   seed: 42
   device: auto

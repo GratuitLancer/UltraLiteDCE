@@ -24,6 +24,33 @@ def test_model_shape_range_and_curve_modes(curve_mode: str) -> None:
     assert torch.all(enhanced <= 1.0)
 
 
+def test_identity_initialization_has_no_color_cast() -> None:
+    model = UltraLiteDCE(identity_init=True)
+    image = torch.rand(2, 3, 31, 47)
+    enhanced, curve = model.enhance(image)
+    assert torch.count_nonzero(curve).item() == 0
+    assert torch.equal(enhanced, image)
+
+
+@pytest.mark.parametrize("curve_mode", ["shared", "per_step"])
+def test_coupled_curve_bounds_rgb_difference(curve_mode: str) -> None:
+    scale = 0.1
+    model = UltraLiteDCE(
+        curve_mode=curve_mode,
+        curve_chroma_scale=scale,
+        identity_init=False,
+    )
+    with torch.no_grad():
+        model.curve_head.weight.normal_(mean=0.0, std=5.0)
+        model.curve_head.bias.normal_(mean=0.0, std=5.0)
+    image = torch.rand(1, 3, 25, 27)
+    curve = model.predict_curve(image)
+    steps = 1 if curve_mode == "shared" else model.num_iterations
+    grouped = curve.reshape(1, steps, 3, 25, 27)
+    channel_spread = grouped.max(dim=2).values - grouped.min(dim=2).values
+    assert channel_spread.max().item() <= 2.0 * scale + 1e-6
+
+
 @pytest.mark.parametrize("height,width", [(31, 47), (255, 257), (17, 19)])
 def test_arbitrary_odd_size_inference(height: int, width: int) -> None:
     model = UltraLiteDCE(prediction_scale=0.25).eval()
@@ -45,4 +72,3 @@ def test_forward_backward_has_finite_gradients() -> None:
     assert all(gradient is not None for gradient in gradients)
     assert all(torch.isfinite(gradient).all() for gradient in gradients if gradient is not None)
     assert any(torch.count_nonzero(gradient).item() > 0 for gradient in gradients if gradient is not None)
-

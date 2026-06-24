@@ -26,6 +26,14 @@ RGB input
 
 默认配置为 `width=8`、3 个 depthwise separable block、4 次 shared curve 迭代、`prediction_scale=0.5`，且不使用 BatchNorm。增强公式已包含在模型 `forward` 中，使用的算子可导出 ONNX。
 
+为避免低照度输入下卷积 bias 主导 RGB curve 并形成固定偏色，默认还启用了颜色安全机制：
+
+- 所有卷积 bias 从 0 开始；
+- Curve Head 的 weight/bias 零初始化，因此初始模型严格输出原图；
+- `curve_color_mode=coupled` 将 curve 分解为公共亮度分量和受限 RGB 色度残差；
+- `curve_chroma_scale=0.05` 将任意一步 RGB curve 的最大通道差限制在 0.1 以内；
+- paired chromaticity loss 直接约束增强图与 high 图的 RGB 比例。
+
 与常见 Zero-DCE-style baseline 的主要区别：
 
 - curve predictor 默认宽度从 32 降到 8；
@@ -119,7 +127,7 @@ python train.py --config configs/ultralite_dce.yaml --synthetic \
   --set data.synthetic_val_size=2
 ```
 
-训练功能包括 Adam、cosine scheduler、CUDA AMP、gradient clipping、固定种子、train/validation split、last/best checkpoint、CSV/TensorBoard 日志和定期图像预览。best checkpoint 按 validation PSNR 保存。
+训练功能包括 Adam、cosine scheduler、CUDA AMP、gradient clipping、固定种子、train/validation split、last/best checkpoint、CSV/TensorBoard 日志和定期图像预览。best checkpoint 按 validation PSNR 保存。默认 CUDA AMP 使用 `bfloat16`；RTX 30/40 系支持其更宽的数值范围，并且不需要 GradScaler。可通过 `training.amp_dtype=float16` 做消融。
 
 ## 损失函数
 
@@ -132,6 +140,7 @@ python train.py --config configs/ultralite_dce.yaml --synthetic \
 - L1 reconstruction：paired 像素重建；
 - SSIM loss：结构相似性；
 - Edge preservation：Sobel 水平/垂直梯度 L1；
+- Chromaticity：忽略整体亮度差异，约束增强图与 paired high 图的 RGB 比例；
 - Saturation protection：`mean(relu(enhanced - saturation_threshold))`。
 
 权重、曝光目标和饱和阈值均在 YAML 的 `loss` 节配置。
@@ -200,9 +209,14 @@ model:
   curve_mode: shared      # shared / per_step
   prediction_scale: 0.5   # 1.0 / 0.5 / 0.25
   convolution: depthwise_separable  # standard / depthwise_separable
+  curve_color_mode: coupled         # coupled / independent
+  curve_chroma_scale: 0.05          # coupled 模式的 RGB 残差上限
+  identity_init: true               # 初始输出严格等于输入
 ```
 
 `shared` 输出 3 通道 curve；`per_step` 输出 `3 × num_iterations` 通道。其余数据、loss、训练、评估、benchmark 和 ONNX 参数见 `configs/ultralite_dce.yaml`。
+
+旧版独立 RGB curve checkpoint 不应直接恢复到颜色安全模型继续训练。修改颜色参数化后应使用新的输出目录从头训练。
 
 ## 输出目录
 
@@ -234,6 +248,7 @@ pytest -q
 - `Low/high pairing failed`：检查缺失图片、命名差异或同一目录中的重复 stem。
 - Windows DataLoader 卡住：先用 `--num-workers 0`，并确保从带 `if __name__ == "__main__"` 的脚本启动。
 - CUDA OOM：减小 batch size/crop size，或使用 `prediction_scale=0.25`；验证固定 batch size 1。
+- AMP 下 loss 出现巨大负数：这是旧版 SSIM 在 float16 方差计算中的数值溢出。当前实现已让模型 forward 使用 AMP、所有损失使用 float32，并在异常 loss 时立即停止。不要恢复已经产生异常 loss 的 checkpoint，应换新输出目录从头训练。
 - checkpoint 结构不匹配：推理使用训练时相同配置，或直接依赖 checkpoint 内嵌配置。
 - ONNX 导出缺包：安装 `onnx onnxruntime`；新版 PyTorch 若提示还缺 `onnxscript`，按提示安装。
 - ONNX 数值误差超阈值：确认模型为 eval 模式、输入范围 `[0,1]`，并检查 execution provider。
@@ -250,3 +265,24 @@ pytest -q
 | UltraLite-PerStep |     8 |         12 |          4 |   0.5 |    788 | 23.59M | 待测 | 待测 |   待测 |
 
 训练结果应同时记录随机种子、数据划分、输入 crop、checkpoint、PyTorch/ONNX Runtime 版本、CPU 型号和线程数。
+
+## 偏紫或固定色偏
+
+当前默认模型已经使用 coupled curve、零 bias、恒等初始化和 paired chromaticity loss。若 checkpoint 来自旧版独立 RGB curve 实现，请勿使用 `--resume`，应换一个全新输出目录从头训练：
+
+```bash
+python train.py --config configs/ultralite_dce.yaml \
+  --epochs 100 --num-workers 0 \
+  --output-dir outputs/color_safe_train
+```
+
+训练后使用新目录中的 checkpoint：
+
+```bash
+python infer.py \
+  --checkpoint outputs/color_safe_train/checkpoints/best.pt \
+  --input data/LOL/eval15/low \
+  --output outputs/color_safe_train/eval15_enhanced
+```
+
+前几个 epoch 仍接近原始暗图是恒等初始化的预期行为；它避免模型在尚未学到有效增强前先产生随机色偏。应以 validation PSNR/SSIM 和预览图共同选择 checkpoint。

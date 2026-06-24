@@ -6,6 +6,9 @@ model:
   curve_mode: per_step
   prediction_scale: 1.0
   convolution: standard
+  curve_color_mode: independent
+  curve_chroma_scale: 1.0
+  identity_init: true
 
 data:
   root: data/LOL
@@ -27,6 +30,7 @@ loss:
   l1: 1.0
   ssim: 0.2
   edge: 0.1
+  chromaticity: 1.0
   saturation: 0.1
   exposure_target: 0.6
   saturation_threshold: 0.95
@@ -39,6 +43,7 @@ training:
   weight_decay: 0.00001
   num_workers: 4
   amp: true
+  amp_dtype: bfloat16
   grad_clip: 1.0
   seed: 42
   device: auto

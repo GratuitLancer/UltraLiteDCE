@@ -35,6 +35,7 @@ LOSS_NAMES = [
     "l1",
     "ssim",
     "edge",
+    "chromaticity",
     "saturation",
 ]
 
@@ -89,6 +90,18 @@ def build_datasets(config: dict[str, Any]) -> tuple[torch.utils.data.Dataset, to
     return train_dataset, val_dataset
 
 
+def resolve_amp_dtype(name: str, device: torch.device) -> torch.dtype:
+    normalized = name.lower().replace("_", "")
+    if normalized in {"bfloat16", "bf16"}:
+        if device.type == "cuda" and not torch.cuda.is_bf16_supported():
+            print("Warning: CUDA device does not support bfloat16; falling back to float16.")
+            return torch.float16
+        return torch.bfloat16
+    if normalized in {"float16", "fp16", "half"}:
+        return torch.float16
+    raise ValueError("training.amp_dtype must be 'bfloat16' or 'float16'")
+
+
 def make_grad_scaler(enabled: bool) -> Any:
     if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler"):
         try:
@@ -106,6 +119,7 @@ def train_one_epoch(
     scaler: Any,
     device: torch.device,
     amp_enabled: bool,
+    amp_dtype: torch.dtype,
     grad_clip: float,
 ) -> dict[str, float]:
     model.train()
@@ -117,11 +131,21 @@ def train_one_epoch(
         optimizer.zero_grad(set_to_none=True)
         with torch.autocast(
             device_type=device.type,
-            dtype=torch.float16,
+            dtype=amp_dtype,
             enabled=amp_enabled,
         ):
             enhanced, curve = model.enhance(low)
-            total, components = criterion(low, enhanced, high, curve)
+        # Compute loss outside autocast. SSIM's variance calculation is unstable
+        # in float16 and can otherwise produce enormous negative values.
+        total, components = criterion(low, enhanced, high, curve)
+        if not torch.isfinite(total) or abs(float(total.detach().item())) > 1e6:
+            values = {
+                name: float(value.detach().item())
+                for name, value in components.items()
+            }
+            raise FloatingPointError(
+                f"Invalid loss detected before backward: {values}"
+            )
         scaler.scale(total).backward()
         if grad_clip > 0:
             scaler.unscale_(optimizer)
@@ -217,7 +241,12 @@ def run_training(config: dict[str, Any], resume: str | None = None) -> dict[str,
     epochs = int(train_cfg.get("epochs", 100))
     scheduler = CosineAnnealingLR(optimizer, T_max=max(1, epochs))
     amp_enabled = bool(train_cfg.get("amp", True)) and device.type == "cuda"
-    scaler = make_grad_scaler(amp_enabled)
+    amp_dtype = resolve_amp_dtype(
+        str(train_cfg.get("amp_dtype", "bfloat16")),
+        device,
+    )
+    # bfloat16 has float32-like exponent range and does not need loss scaling.
+    scaler = make_grad_scaler(amp_enabled and amp_dtype == torch.float16)
     start_epoch = 0
     best_psnr = -math.inf
 
@@ -255,6 +284,7 @@ def run_training(config: dict[str, Any], resume: str | None = None) -> dict[str,
             scaler,
             device,
             amp_enabled,
+            amp_dtype,
             float(train_cfg.get("grad_clip", 1.0)),
         )
         val_metrics, preview = validate(model, val_loader, criterion, device)

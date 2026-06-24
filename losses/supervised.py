@@ -31,26 +31,39 @@ def ssim_index(
         raise ValueError("SSIM inputs must have the same shape")
     if prediction.ndim != 4:
         raise ValueError("SSIM inputs must have shape BxCxHxW")
-    channels = prediction.shape[1]
-    window = _gaussian_window(
-        channels, window_size, sigma, prediction.device, prediction.dtype
-    )
-    padding = window_size // 2
-    mu_x = F.conv2d(prediction, window, padding=padding, groups=channels)
-    mu_y = F.conv2d(target, window, padding=padding, groups=channels)
-    mu_x_sq = mu_x.square()
-    mu_y_sq = mu_y.square()
-    mu_xy = mu_x * mu_y
-    sigma_x = F.conv2d(prediction.square(), window, padding=padding, groups=channels) - mu_x_sq
-    sigma_y = F.conv2d(target.square(), window, padding=padding, groups=channels) - mu_y_sq
-    sigma_xy = F.conv2d(prediction * target, window, padding=padding, groups=channels) - mu_xy
-    c1 = (0.01 * data_range) ** 2
-    c2 = (0.03 * data_range) ** 2
-    numerator = (2.0 * mu_xy + c1) * (2.0 * sigma_xy + c2)
-    denominator = (mu_x_sq + mu_y_sq + c1) * (sigma_x + sigma_y + c2)
-    # C1*C2 is 9e-8 for data_range=1, smaller than float32 eps but still valid.
-    # Using eps here would incorrectly reduce SSIM for identical black images.
-    return (numerator / denominator.clamp_min(torch.finfo(prediction.dtype).tiny)).mean()
+    # Variance as E[x^2] - E[x]^2 is unstable in float16 under CUDA AMP.
+    # Keep this loss in float32 even when the model forward uses mixed precision.
+    with torch.autocast(device_type=prediction.device.type, enabled=False):
+        prediction = prediction.float()
+        target = target.float()
+        channels = prediction.shape[1]
+        window = _gaussian_window(
+            channels, window_size, sigma, prediction.device, prediction.dtype
+        )
+        padding = window_size // 2
+        mu_x = F.conv2d(prediction, window, padding=padding, groups=channels)
+        mu_y = F.conv2d(target, window, padding=padding, groups=channels)
+        mu_x_sq = mu_x.square()
+        mu_y_sq = mu_y.square()
+        mu_xy = mu_x * mu_y
+        sigma_x = (
+            F.conv2d(prediction.square(), window, padding=padding, groups=channels)
+            - mu_x_sq
+        ).clamp_min(0.0)
+        sigma_y = (
+            F.conv2d(target.square(), window, padding=padding, groups=channels)
+            - mu_y_sq
+        ).clamp_min(0.0)
+        sigma_xy = (
+            F.conv2d(prediction * target, window, padding=padding, groups=channels)
+            - mu_xy
+        )
+        c1 = (0.01 * data_range) ** 2
+        c2 = (0.03 * data_range) ** 2
+        numerator = (2.0 * mu_xy + c1) * (2.0 * sigma_xy + c2)
+        denominator = (mu_x_sq + mu_y_sq + c1) * (sigma_x + sigma_y + c2)
+        ssim_map = numerator / denominator.clamp_min(torch.finfo(torch.float32).tiny)
+        return ssim_map.clamp(-1.0, 1.0).mean()
 
 
 class SSIMLoss(nn.Module):
@@ -81,3 +94,36 @@ class EdgePreservationLoss(nn.Module):
         pred_x, pred_y = self._gradient(prediction)
         target_x, target_y = self._gradient(target)
         return F.l1_loss(pred_x, target_x) + F.l1_loss(pred_y, target_y)
+
+
+class ChromaticityLoss(nn.Module):
+    """Match RGB proportions while largely ignoring brightness differences."""
+
+    def __init__(self, eps: float = 1e-4) -> None:
+        super().__init__()
+        self.eps = eps
+
+    def _chromaticity(self, image: torch.Tensor) -> torch.Tensor:
+        return image / image.sum(dim=1, keepdim=True).clamp_min(self.eps)
+
+    def forward(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        prediction_chroma = self._chromaticity(prediction)
+        target_chroma = self._chromaticity(target)
+
+        # Very dark pixels have unstable RGB ratios, so weight them by target luminance.
+        weight = target.mean(dim=1, keepdim=True).detach()
+        pixel_error = torch.abs(prediction_chroma - target_chroma)
+        weighted_pixel = (pixel_error * weight).sum() / (
+            weight.sum() * prediction.shape[1] + self.eps
+        )
+
+        prediction_mean = prediction.mean(dim=(2, 3))
+        target_mean = target.mean(dim=(2, 3))
+        prediction_global = prediction_mean / prediction_mean.sum(
+            dim=1, keepdim=True
+        ).clamp_min(self.eps)
+        target_global = target_mean / target_mean.sum(
+            dim=1, keepdim=True
+        ).clamp_min(self.eps)
+        global_error = F.l1_loss(prediction_global, target_global)
+        return weighted_pixel + global_error

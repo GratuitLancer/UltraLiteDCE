@@ -1,5 +1,5 @@
 from .combined import CombinedLoss
-from .supervised import EdgePreservationLoss, SSIMLoss, ssim_index
+from .supervised import ChromaticityLoss, EdgePreservationLoss, SSIMLoss, ssim_index
 from .zero_reference import (
     ColorConstancyLoss,
     ExposureControlLoss,
@@ -9,6 +9,7 @@ from .zero_reference import (
 
 __all__ = [
     "CombinedLoss",
+    "ChromaticityLoss",
     "EdgePreservationLoss",
     "SSIMLoss",
     "ssim_index",
@@ -17,4 +18,3 @@ __all__ = [
     "SpatialConsistencyLoss",
     "TotalVariationLoss",
 ]
-

@@ -29,6 +29,7 @@ def test_synthetic_training_smoke(tmp_path: Path) -> None:
             "l1": 1.0,
             "ssim": 0.2,
             "edge": 0.1,
+            "chromaticity": 1.0,
             "saturation": 0.1,
             "exposure_target": 0.6,
             "saturation_threshold": 0.95,
@@ -55,4 +56,3 @@ def test_synthetic_training_smoke(tmp_path: Path) -> None:
     assert (tmp_path / "training" / "checkpoints" / "last.pt").is_file()
     assert (tmp_path / "training" / "checkpoints" / "best.pt").is_file()
     assert (tmp_path / "training" / "train_log.csv").is_file()
-

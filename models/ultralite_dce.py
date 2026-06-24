@@ -21,6 +21,9 @@ class UltraLiteDCE(nn.Module):
         curve_mode: str = "shared",
         prediction_scale: float = 0.5,
         convolution: str = "depthwise_separable",
+        curve_color_mode: str = "coupled",
+        curve_chroma_scale: float = 0.05,
+        identity_init: bool = True,
     ) -> None:
         super().__init__()
         if width < 1 or num_blocks < 0:
@@ -31,6 +34,10 @@ class UltraLiteDCE(nn.Module):
             raise ValueError("curve_mode must be 'shared' or 'per_step'")
         if not 0.0 < prediction_scale <= 1.0:
             raise ValueError("prediction_scale must be in (0, 1]")
+        if curve_color_mode not in {"coupled", "independent"}:
+            raise ValueError("curve_color_mode must be 'coupled' or 'independent'")
+        if not 0.0 <= curve_chroma_scale <= 1.0:
+            raise ValueError("curve_chroma_scale must be in [0, 1]")
 
         self.width = int(width)
         self.num_blocks = int(num_blocks)
@@ -38,6 +45,9 @@ class UltraLiteDCE(nn.Module):
         self.curve_mode = curve_mode
         self.prediction_scale = float(prediction_scale)
         self.convolution = convolution
+        self.curve_color_mode = curve_color_mode
+        self.curve_chroma_scale = float(curve_chroma_scale)
+        self.identity_init = bool(identity_init)
 
         self.stem = nn.Sequential(
             nn.Conv2d(3, width, kernel_size=3, padding=1, bias=True),
@@ -48,6 +58,34 @@ class UltraLiteDCE(nn.Module):
         )
         curve_channels = 3 if curve_mode == "shared" else 3 * num_iterations
         self.curve_head = nn.Conv2d(width, curve_channels, kernel_size=1, bias=True)
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        for module in self.modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.kaiming_normal_(module.weight, mode="fan_out", nonlinearity="relu")
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+        if self.identity_init:
+            nn.init.zeros_(self.curve_head.weight)
+            nn.init.zeros_(self.curve_head.bias)
+
+    def _parameterize_curve(self, logits: torch.Tensor) -> torch.Tensor:
+        if self.curve_color_mode == "independent":
+            return torch.tanh(logits)
+
+        steps = 1 if self.curve_mode == "shared" else self.num_iterations
+        batch, _, height, width = logits.shape
+        grouped = logits.reshape(batch, steps, 3, height, width)
+        luminance_logits = grouped.mean(dim=2, keepdim=True)
+        luminance_curve = torch.tanh(luminance_logits)
+        chroma_curve = torch.tanh(grouped - luminance_logits)
+        curve = torch.clamp(
+            luminance_curve + self.curve_chroma_scale * chroma_curve,
+            -1.0,
+            1.0,
+        )
+        return curve.reshape(batch, steps * 3, height, width)
 
     def predict_curve(self, image: torch.Tensor) -> torch.Tensor:
         if self.prediction_scale == 1.0:
@@ -61,7 +99,7 @@ class UltraLiteDCE(nn.Module):
                 recompute_scale_factor=False,
             )
         features = self.blocks(self.stem(prediction_input))
-        curve = torch.tanh(self.curve_head(features))
+        curve = self._parameterize_curve(self.curve_head(features))
         if curve.shape[-2:] != image.shape[-2:]:
             curve = F.interpolate(
                 curve,
@@ -88,7 +126,10 @@ class UltraLiteDCE(nn.Module):
         return (
             f"width={self.width}, num_blocks={self.num_blocks}, "
             f"num_iterations={self.num_iterations}, curve_mode={self.curve_mode}, "
-            f"prediction_scale={self.prediction_scale}, convolution={self.convolution}"
+            f"prediction_scale={self.prediction_scale}, convolution={self.convolution}, "
+            f"curve_color_mode={self.curve_color_mode}, "
+            f"curve_chroma_scale={self.curve_chroma_scale}, "
+            f"identity_init={self.identity_init}"
         )
 
 
@@ -104,5 +145,7 @@ def build_model(config: Mapping[str, Any]) -> UltraLiteDCE:
         curve_mode=str(model_cfg.get("curve_mode", "shared")),
         prediction_scale=float(model_cfg.get("prediction_scale", 0.5)),
         convolution=str(model_cfg.get("convolution", "depthwise_separable")),
+        curve_color_mode=str(model_cfg.get("curve_color_mode", "coupled")),
+        curve_chroma_scale=float(model_cfg.get("curve_chroma_scale", 0.05)),
+        identity_init=bool(model_cfg.get("identity_init", True)),
     )
-
