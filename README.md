@@ -1,36 +1,52 @@
 # UltraLiteDCE
 
-UltraLiteDCE 是一个面向 CPU、移动端和 ONNX 部署的轻量低光照图像增强项目。核心仍保留 Zero-DCE 曲线增强公式：
+UltraLiteDCE is a lightweight PyTorch project for low-light image enhancement (LLIE) on the LOL paired dataset. It keeps the core Zero-DCE curve formulation:
 
 ```text
 I_next = I + A * I * (1 - I)
 ```
 
-项目使用 LOL paired dataset 训练，组合 zero-reference losses 与 paired supervision。当前优化重点是：在已经能提升亮度的基础上，减少暗区彩色噪声、降低局部颜色不自然和过度拉亮，同时保持模型轻量化。
+The goal is to keep the model small and deployment-friendly while improving visual naturalness, especially in dark regions where color noise and over-enhancement often appear.
 
-README 中未实际跑出的质量和速度数值都标为“待测”，不包含伪造实验结果。
+The original Chinese README has been preserved as [README_cn.md](README_cn.md).
 
-## 模型结构
+## Highlights
 
-默认 UltraLiteDCE：
+- PyTorch implementation of a lightweight Zero-DCE-style LLIE model.
+- LOL-v1 paired dataset support.
+- Shared and per-step curve modes.
+- Half-resolution curve prediction.
+- Depthwise separable convolution support.
+- No BatchNorm in the default model.
+- Color-safe curve parameterization.
+- Dark-region smoothness loss for noise suppression.
+- Paired supervision with L1, SSIM, and Sobel edge losses.
+- Training, evaluation, inference, benchmark, ONNX export, and comparison scripts.
+- ONNX Runtime validation with dynamic batch/height/width support.
+- ZeroDCE-style baseline comparison workflow.
+
+## Model Architecture
+
+Default UltraLiteDCE:
 
 ```text
-RGB input
+RGB input: B x 3 x H x W
   -> 0.5x bilinear resize
-  -> 3x3 stem conv (3 -> width)
+  -> 3x3 stem conv: 3 -> width
   -> N x depthwise separable conv
   -> 1x1 curve head
   -> tanh / coupled curve parameterization
-  -> resize curve to original resolution
-  -> shared/per-step Zero-DCE curve iterations
+  -> upsample curve map to H x W
+  -> shared or per-step Zero-DCE curve iterations
   -> optional dark denoise head
-  -> clamp [0, 1]
+  -> clamp to [0, 1]
 ```
 
-默认推荐轻量配置：
+Default optimized configuration:
 
 ```yaml
 model:
+  name: ultralite_dce
   width: 8
   num_blocks: 3
   num_iterations: 4
@@ -43,48 +59,72 @@ model:
   use_dark_denoise_head: false
 ```
 
-与标准 Zero-DCE-style baseline 的主要区别：
+## Difference from the ZeroDCE-style Baseline
 
-- 默认宽度从 32 降到 8；
-- 标准卷积替换为 depthwise separable convolution；
-- curve map 默认在半分辨率预测；
-- 默认只预测 3 通道 shared RGB curve，而不是 8 步共 24 通道；
-- 默认迭代 4 次；
-- 不使用 BatchNorm；
-- 模型 forward 内直接完成 curve enhancement，方便部署；
-- 加入 identity initialization、coupled curve、暗区平滑损失和 saturation protection，降低色偏与暗区彩噪风险。
+Compared with the heavier ZeroDCE-style baseline used in this repository:
 
-`configs/baseline_dce.yaml` 提供 width=32、per-step curve、全分辨率和标准卷积的对照配置。
+- width is reduced from 32 to 8;
+- standard convolutions are replaced by depthwise separable convolutions;
+- curve maps are predicted at half resolution;
+- the default model predicts one shared RGB curve map instead of 8 per-step RGB maps;
+- curve iterations are reduced from 8 to 4;
+- BatchNorm is not used;
+- forward inference directly returns the enhanced image;
+- color-safe initialization and curve coupling reduce fixed color bias;
+- dark-region smoothness and saturation losses reduce noise and overexposure.
 
-## 本次视觉质量优化
+The baseline configuration is available at:
 
-针对 60 epoch preview 中的红绿彩色噪声、暗区噪声放大和局部颜色不自然，本项目新增/调整：
-
-- `DarkRegionSmoothnessLoss`：只在输入很暗的区域约束 enhanced 高频变化；
-- 更强 `curve_tv`：默认优化配置从 20.0 提高到 50.0，抑制 per-pixel curve 抖动；
-- 降低 exposure aggressiveness：`exposure=0.3`，`exposure_target=0.55`；
-- 提高 paired supervision：`l1=2.0`，`ssim=0.5`，`edge=0.2`；
-- 加强 saturation protection：`saturation=0.2`；
-- 可选轻量暗区 denoise head：默认关闭，用于 ablation。
-
-推荐先使用：
-
-```bash
-python train.py --config configs/ultralite_dce_denoise.yaml --device cuda --num-workers 2
+```text
+configs/comparison/zerodce_baseline_60.yaml
 ```
 
-如果要更保守地减少彩噪，请优先保持：
+## Project Structure
 
-```yaml
-model:
-  curve_mode: shared
-  num_iterations: 4
-  prediction_scale: 0.5
+```text
+configs/
+├── ultralite_dce.yaml
+├── ultralite_dce_denoise.yaml
+├── baseline_dce.yaml
+├── ablation/
+└── comparison/
+    ├── ultralite_color_safe_gpu_denoise_60.yaml
+    └── zerodce_baseline_60.yaml
+
+models/
+├── blocks.py
+├── curve.py
+└── ultralite_dce.py
+
+losses/
+├── zero_reference.py
+├── supervised.py
+└── combined.py
+
+datasets/
+└── lol_dataset.py
+
+utils/
+├── benchmark.py
+├── checkpoint.py
+├── config.py
+├── image.py
+├── metrics.py
+└── seed.py
+
+train.py
+evaluate.py
+infer.py
+benchmark.py
+export_onnx.py
+compare_baseline.py
+quantize_onnx.py
+tests/
 ```
 
-## 环境安装
+## Environment Setup
 
-Windows PowerShell：
+Windows PowerShell:
 
 ```powershell
 python -m venv .venv
@@ -93,7 +133,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Linux/macOS：
+Linux/macOS:
 
 ```bash
 python3 -m venv .venv
@@ -102,16 +142,22 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-如需 CUDA，请按 PyTorch 官方页面安装与你显卡/驱动匹配的 `torch` wheel。LPIPS 和 NIQE 是可选指标：
+For GPU training, install the PyTorch build that matches your CUDA driver. Optional metrics:
 
 ```bash
 pip install lpips
 pip install pyiqa
 ```
 
-## LOL-v1 数据目录
+For ONNX export and validation:
 
-默认目录：
+```bash
+pip install onnx onnxruntime onnxscript
+```
+
+## LOL Dataset Layout
+
+Default expected layout:
 
 ```text
 data/LOL/
@@ -123,7 +169,7 @@ data/LOL/
     └── high/
 ```
 
-也可在 YAML 中配置：
+YAML fields:
 
 ```yaml
 data:
@@ -134,64 +180,32 @@ data:
   test_high: eval15/high
 ```
 
-low/high 按文件 stem 配对。训练时使用 paired random crop、水平/垂直翻转和 90 度旋转，所有增强都同步作用在 low/high 上。评估和推理保留原始分辨率，奇数尺寸可以直接推理。
+Low/high images are matched by filename stem. Training uses paired random crop and paired geometric augmentation, so low/high alignment is preserved. Evaluation and inference keep the original image resolution.
 
-## 训练与恢复
+## Loss Functions
 
-推荐优化训练：
+Each loss component is logged separately.
 
-```bash
-python train.py --config configs/ultralite_dce_denoise.yaml --device cuda --num-workers 2
-```
+Zero-reference losses:
 
-旧默认配置训练：
+- `spatial`: local spatial consistency.
+- `exposure`: exposure control toward `exposure_target`.
+- `color`: RGB channel mean consistency.
+- `curve_tv`: curve map total variation smoothness.
 
-```bash
-python train.py --config configs/ultralite_dce.yaml
-```
+Paired losses:
 
-恢复训练：
+- `l1`: pixel reconstruction loss.
+- `ssim`: structural similarity loss.
+- `edge`: Sobel gradient edge preservation.
+- `chromaticity`: optional RGB ratio constraint.
 
-```bash
-python train.py --config configs/ultralite_dce_denoise.yaml --resume outputs/ultralite_dce_denoise/checkpoints/last.pt
-```
+Noise and overexposure protection:
 
-CLI 覆盖示例：
+- `dark_smooth`: suppresses high-frequency variations in dark input regions.
+- `saturation`: `mean(relu(enhanced - saturation_threshold))`.
 
-```bash
-python train.py --config configs/ultralite_dce_denoise.yaml \
-  --epochs 20 --batch-size 4 --device cuda \
-  --set model.width=12 \
-  --set model.curve_mode=per_step \
-  --set model.num_iterations=6
-```
-
-没有 LOL 数据时可用 synthetic smoke test 验证流程，但 synthetic 指标不能作为真实结果：
-
-```bash
-python train.py --config configs/ultralite_dce_denoise.yaml --synthetic \
-  --epochs 1 --batch-size 2 --num-workers 0 \
-  --set training.crop_size=64 \
-  --set data.synthetic_train_size=4 \
-  --set data.synthetic_val_size=2
-```
-
-## 损失函数
-
-每一项 loss 都会单独写入 CSV 和 TensorBoard：
-
-- `spatial`：输入与增强图的局部亮度梯度一致性；
-- `exposure`：局部平均曝光靠近 `exposure_target`；
-- `color`：RGB 通道均值一致性，抑制整体色偏；
-- `curve_tv`：curve map 空间平滑，减少逐像素曲线噪声；
-- `l1`：paired 像素重建；
-- `ssim`：paired 结构相似；
-- `edge`：Sobel 水平/垂直边缘约束；
-- `dark_smooth`：只在输入暗区抑制 enhanced 高频噪声；
-- `saturation`：`mean(relu(enhanced - saturation_threshold))`；
-- `chromaticity`：可选 RGB 比例约束，旧配置中启用，新优化配置默认不启用。
-
-推荐优化 loss：
+Optimized loss configuration:
 
 ```yaml
 loss:
@@ -202,6 +216,7 @@ loss:
   l1: 2.0
   ssim: 0.5
   edge: 0.2
+  chromaticity: 0.0
   dark_smooth: 0.2
   saturation: 0.2
   exposure_target: 0.55
@@ -209,164 +224,29 @@ loss:
   saturation_threshold: 0.95
 ```
 
-## 输出目录
+## Training
 
-训练输出示例：
-
-```text
-outputs/ultralite_dce_denoise/
-├── checkpoints/
-│   ├── last.pt
-│   ├── best.pt
-│   ├── best_psnr.pt
-│   ├── best_ssim.pt
-│   └── final.pt
-├── previews/
-│   ├── epoch_0001_low_enhanced_gt.png
-│   ├── epoch_0001_enhanced.png
-│   └── epoch_0001_curve_map.png
-├── tensorboard/
-├── train_log.csv
-├── train_loss.csv
-├── validation_loss.csv
-└── resolved_config.yaml
-```
-
-`best.pt` 与 `best_psnr.pt` 相同，按 validation PSNR 保存；`best_ssim.pt` 按 validation SSIM 保存。视觉质量不一定总和 PSNR 完全一致，建议同时看 preview。
-
-## 评估、推理和 benchmark
-
-评估 LOL eval15：
-
-```bash
-python evaluate.py \
-  --config configs/ultralite_dce_denoise.yaml \
-  --checkpoint outputs/ultralite_dce_denoise/checkpoints/best.pt
-```
-
-快速评估可减少 CPU benchmark 次数：
-
-```bash
-python evaluate.py \
-  --config configs/ultralite_dce_denoise.yaml \
-  --checkpoint outputs/ultralite_dce_denoise/checkpoints/best.pt \
-  --set benchmark.iterations=10 \
-  --set benchmark.warmup=2
-```
-
-推理单张图片或文件夹：
-
-```bash
-python infer.py \
-  --checkpoint outputs/ultralite_dce_denoise/checkpoints/best.pt \
-  --input data/LOL/eval15/low \
-  --output outputs/ultralite_dce_denoise/eval15_enhanced
-```
-
-单独 benchmark：
-
-```bash
-python benchmark.py --config configs/ultralite_dce_denoise.yaml --checkpoint PATH
-python benchmark.py --config configs/ultralite_dce_denoise.yaml --sizes 256 512 --warmup 20 --iterations 100 --threads 1
-```
-
-评估输出包括 PSNR、SSIM、MAE、参数量、checkpoint size、MACs、CPU 平均推理时间、标准差和 FPS。LPIPS/NIQE 需要安装可选依赖后用 `--lpips` / `--niqe` 启用。
-
-## ONNX 导出
-
-```bash
-python export_onnx.py \
-  --checkpoint outputs/ultralite_dce_denoise/checkpoints/best.pt \
-  --output outputs/onnx/ultralite_dce.onnx
-```
-
-导出使用动态 batch/height/width，输入名为 `input`，输出名为 `enhanced`。脚本会执行 ONNX checker、ONNX Runtime 数值对齐，并报告最大/平均绝对误差和 ORT CPU benchmark。
-
-卷积主导的小模型通常不会从 ONNX Runtime dynamic quantization 获得有效 INT8 卷积加速，因此项目不宣称 dynamic INT8 有效。可用代表性低光图做 calibrated static QDQ quantization：
-
-```bash
-python quantize_onnx.py \
-  --model outputs/onnx/ultralite_dce.onnx \
-  --output outputs/onnx/ultralite_dce_int8.onnx \
-  --calibration-images data/LOL/our485/low \
-  --limit 100
-```
-
-## Ablation 配置
-
-新增三组配置：
-
-```text
-configs/ablation/baseline.yaml
-configs/ablation/optimized_loss.yaml
-configs/ablation/shared_curve_optimized.yaml
-```
-
-实验记录模板：
-
-| Model | Curve Mode | Iterations | Scale | Params | PSNR | SSIM | MAE | CPU ms | Visual Noise |
-|---|---|---:|---:|---:|---:|---:|---:|---:|---|
-| Baseline | shared | 4 | 0.5 | 待测 | 待测 | 待测 | 待测 | 待测 | high |
-| Optimized Loss | per_step | 4 | 0.5 | 待测 | 待测 | 待测 | 待测 | 待测 | medium |
-| Shared Curve + Optimized Loss | shared | 4 | 0.5 | 待测 | 待测 | 待测 | 待测 | 待测 | low |
-
-## 测试
-
-```bash
-pytest -q
-```
-
-测试覆盖 shape/range、shared/per-step、奇数尺寸、paired crop 对齐、loss finite、backward、checkpoint、ONNX 一致性、单图推理和 synthetic training smoke test。缺少 ONNX 依赖时，ONNX 测试会明确 skip。
-
-## 常见问题
-
-- 输出偏紫/偏色：不要 resume 旧的独立 RGB curve checkpoint；使用新输出目录重新训练，并优先用 coupled curve + shared mode。
-- 暗区红绿噪声明显：使用 `configs/ultralite_dce_denoise.yaml`，观察 `dark_smooth`、`curve_tv` 和 preview；必要时把 `dark_smooth` 提到 `0.3` 或把 `prediction_scale` 降到 `0.25`。
-- 画面过暗：适当提高 `exposure_target` 到 `0.58` 或降低 `dark_smooth`。
-- 过曝/发灰：降低 `exposure` 或提高 `saturation`，检查 enhanced-only preview。
-- Windows DataLoader 卡住：先用 `--num-workers 0`。
-- CUDA OOM：降低 batch size/crop size，或使用 `prediction_scale=0.25`。
-- PSNR/SSIM 平台后视觉仍差：优先看 `best_ssim.pt` 和 preview；PSNR 最高的 checkpoint 不一定视觉噪声最低。
-- ONNX 缺包：安装 `onnx onnxruntime`；新 PyTorch 若提示缺 `onnxscript`，按提示安装。
-## 60 epoch ONNX 与 ZeroDCE-style baseline 对比
-
-本项目提供一套固定 60 epoch 的对比配置：
-
-```text
-configs/comparison/ultralite_color_safe_gpu_denoise_60.yaml
-configs/comparison/zerodce_baseline_60.yaml
-```
-
-其中 UltraLiteDCE 配置参照 `outputs/color_safe_gpu_denoise/resolved_config.yaml`：
-
-- width=8
-- shared curve
-- 4 iterations
-- prediction_scale=0.5
-- depthwise separable convolution
-- optimized denoise/color-safe loss
-- training.epochs=60
-
-ZeroDCE-style baseline 使用：
-
-- width=32
-- per_step curve
-- 8 iterations
-- prediction_scale=1.0
-- standard convolution
-- training.epochs=60
-
-先训练 baseline：
+Recommended optimized UltraLiteDCE training:
 
 ```powershell
 python train.py `
-  --config configs\comparison\zerodce_baseline_60.yaml `
-  --epochs 60 `
+  --config configs\ultralite_dce_denoise.yaml `
+  --epochs 100 `
+  --batch-size 8 `
   --num-workers 2 `
-  --device cuda
+  --device cuda `
+  --output-dir outputs\ultralite_dce_denoise
 ```
 
-如果要复现实验中的 UltraLiteDCE 训练，也可以运行：
+Resume training:
+
+```powershell
+python train.py `
+  --config configs\ultralite_dce_denoise.yaml `
+  --resume outputs\ultralite_dce_denoise\checkpoints\last.pt
+```
+
+The 60-epoch UltraLiteDCE configuration used for the final comparison:
 
 ```powershell
 python train.py `
@@ -376,7 +256,115 @@ python train.py `
   --device cuda
 ```
 
-已有 `outputs/color_safe_gpu_denoise/checkpoints/best_psnr.pt` 时可以直接导出 ONNX：
+The 60-epoch ZeroDCE-style baseline:
+
+```powershell
+python train.py `
+  --config configs\comparison\zerodce_baseline_60.yaml `
+  --epochs 60 `
+  --num-workers 2 `
+  --device cuda
+```
+
+Training outputs:
+
+```text
+outputs/<run_name>/
+├── checkpoints/
+│   ├── last.pt
+│   ├── best.pt
+│   ├── best_psnr.pt
+│   ├── best_ssim.pt
+│   └── final.pt
+├── previews/
+│   ├── epoch_XXXX_low_enhanced_gt.png
+│   ├── epoch_XXXX_enhanced.png
+│   └── epoch_XXXX_curve_map.png
+├── tensorboard/
+├── train_log.csv
+├── train_loss.csv
+├── validation_loss.csv
+└── resolved_config.yaml
+```
+
+`best.pt` and `best_psnr.pt` are selected by validation PSNR. `best_ssim.pt` is selected by validation SSIM.
+
+## Evaluation
+
+Evaluate on LOL eval15:
+
+```powershell
+python evaluate.py `
+  --config configs\ultralite_dce_denoise.yaml `
+  --checkpoint outputs\ultralite_dce_denoise\checkpoints\best.pt `
+  --device cuda `
+  --output-dir outputs\ultralite_dce_denoise\evaluation
+```
+
+Saved outputs:
+
+```text
+evaluation/
+├── enhanced/
+├── comparisons/
+├── per_image_metrics.csv
+└── summary.json
+```
+
+Metrics include:
+
+- PSNR
+- SSIM
+- MAE
+- parameters
+- checkpoint size
+- MACs
+- CPU inference time
+- FPS
+
+Optional metrics:
+
+```powershell
+python evaluate.py --config CONFIG --checkpoint CKPT --lpips --niqe
+```
+
+## Inference
+
+Single image:
+
+```powershell
+python infer.py `
+  --checkpoint outputs\ultralite_dce_denoise\checkpoints\best.pt `
+  --input path\to\low.png `
+  --output outputs\infer\enhanced.png
+```
+
+Folder:
+
+```powershell
+python infer.py `
+  --checkpoint outputs\ultralite_dce_denoise\checkpoints\best.pt `
+  --input data\LOL\eval15\low `
+  --output outputs\infer_eval15
+```
+
+## CPU Benchmark
+
+```powershell
+python benchmark.py `
+  --config configs\ultralite_dce_denoise.yaml `
+  --checkpoint outputs\ultralite_dce_denoise\checkpoints\best.pt `
+  --sizes 256 512 `
+  --warmup 20 `
+  --iterations 100 `
+  --threads 1
+```
+
+Benchmark uses batch size 1, `torch.inference_mode()`, warm-up iterations, and `time.perf_counter()`.
+
+## ONNX Export
+
+Export and validate UltraLiteDCE:
 
 ```powershell
 python export_onnx.py `
@@ -389,7 +377,7 @@ python export_onnx.py `
   --iterations 100
 ```
 
-baseline 训练完成后导出：
+Export and validate the ZeroDCE-style baseline:
 
 ```powershell
 python export_onnx.py `
@@ -402,19 +390,43 @@ python export_onnx.py `
   --iterations 100
 ```
 
-一键生成 eval15 指标、CPU benchmark、ONNX 误差和对比表：
+ONNX export uses:
+
+- opset 18 by default;
+- input name: `input`;
+- output name: `enhanced`;
+- dynamic batch, height, and width;
+- ONNX checker validation;
+- ONNX Runtime CPU output comparison;
+- ONNX Runtime CPU benchmark.
+
+The export report is saved next to the `.onnx` file as `.json`.
+
+Dynamic INT8 quantization is not claimed to be effective for this convolution-heavy model. Static QDQ quantization can be prepared with representative low-light calibration images:
+
+```powershell
+python quantize_onnx.py `
+  --model outputs\onnx\ultralite_color_safe_gpu_denoise.onnx `
+  --output outputs\onnx\ultralite_color_safe_gpu_denoise_int8.onnx `
+  --calibration-images data\LOL\our485\low `
+  --limit 100
+```
+
+## 60-Epoch UltraLiteDCE vs ZeroDCE-style Baseline
+
+Run the full comparison:
 
 ```powershell
 python compare_baseline.py --device cuda
 ```
 
-快速 smoke 版本：
+Quick smoke comparison:
 
 ```powershell
 python compare_baseline.py --quick --device cuda
 ```
 
-输出文件：
+Outputs:
 
 ```text
 outputs/comparison_60/
@@ -429,4 +441,70 @@ outputs/comparison_60/
     └── onnx/
 ```
 
-如果 baseline checkpoint 还不存在，`compare_baseline.py` 会在 summary 中标记 `missing_checkpoint`，不会伪造 baseline 的 PSNR/SSIM。
+Final measured comparison from the current workspace:
+
+| Model | Curve Mode | Iterations | Scale | Params | MACs 256 | PSNR | SSIM | MAE | PyTorch CPU 256 ms | ONNX CPU 256 ms |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| UltraLiteDCE color_safe_gpu_denoise | shared | 4 | 0.5 | 707 | 10,616,832 | 18.5606 | 0.5509 | 0.1210 | 3.5953 | 1.3367 |
+| ZeroDCE-style baseline | per_step | 8 | 1.0 | 66,424 | 4,334,813,184 | 18.1758 | 0.5561 | 0.1164 | 79.7110 | 9.1191 |
+
+Additional 512x512 PyTorch CPU benchmark:
+
+| Model | CPU 512 ms | FPS 512 |
+|---|---:|---:|
+| UltraLiteDCE color_safe_gpu_denoise | 14.7501 | 67.7964 |
+| ZeroDCE-style baseline | 307.8673 | 3.2482 |
+
+ONNX validation errors:
+
+| Model | Max Abs Error | Dynamic Max Abs Error |
+|---|---:|---:|
+| UltraLiteDCE color_safe_gpu_denoise | 2.38e-7 | 2.98e-7 |
+| ZeroDCE-style baseline | 2.98e-7 | 3.58e-7 |
+
+Notes:
+
+- Both models were trained for 60 epochs.
+- Metrics are measured on LOL eval15.
+- CPU timing uses batch size 1.
+- ONNX timing uses ONNX Runtime CPUExecutionProvider.
+- The baseline has slightly higher SSIM and lower MAE in this run, while UltraLiteDCE has higher PSNR and is dramatically smaller/faster.
+
+## Tests
+
+Run all tests:
+
+```powershell
+pytest -q
+```
+
+Current verified result:
+
+```text
+22 passed
+```
+
+The test suite covers:
+
+- model shape and output range;
+- shared and per-step curve modes;
+- odd image sizes;
+- paired crop alignment;
+- finite losses;
+- backward gradients;
+- checkpoint save/load;
+- ONNX export and output consistency;
+- single-image inference integration;
+- synthetic training smoke test.
+
+## Troubleshooting
+
+- `CUDA was requested but is not available`: install a CUDA-enabled PyTorch build or use `--device cpu`.
+- Windows DataLoader hangs: retry with `--num-workers 0`.
+- Purple or strong color cast: do not resume old independent RGB curve checkpoints; retrain with the coupled curve configuration.
+- Dark-region color noise: use the optimized denoise config and inspect `dark_smooth`, `curve_tv`, and preview images.
+- Overexposure: reduce `loss.exposure`, reduce `exposure_target`, or increase `loss.saturation`.
+- Low PSNR/SSIM: verify LOL low/high pairing and dataset paths.
+- ONNX package missing: install `onnx`, `onnxruntime`, and `onnxscript`.
+- ONNX mismatch: ensure the checkpoint and config match exactly.
+
