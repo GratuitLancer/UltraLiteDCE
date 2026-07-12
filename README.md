@@ -328,3 +328,105 @@ pytest -q
 - CUDA OOM：降低 batch size/crop size，或使用 `prediction_scale=0.25`。
 - PSNR/SSIM 平台后视觉仍差：优先看 `best_ssim.pt` 和 preview；PSNR 最高的 checkpoint 不一定视觉噪声最低。
 - ONNX 缺包：安装 `onnx onnxruntime`；新 PyTorch 若提示缺 `onnxscript`，按提示安装。
+## 60 epoch ONNX 与 ZeroDCE-style baseline 对比
+
+本项目提供一套固定 60 epoch 的对比配置：
+
+```text
+configs/comparison/ultralite_color_safe_gpu_denoise_60.yaml
+configs/comparison/zerodce_baseline_60.yaml
+```
+
+其中 UltraLiteDCE 配置参照 `outputs/color_safe_gpu_denoise/resolved_config.yaml`：
+
+- width=8
+- shared curve
+- 4 iterations
+- prediction_scale=0.5
+- depthwise separable convolution
+- optimized denoise/color-safe loss
+- training.epochs=60
+
+ZeroDCE-style baseline 使用：
+
+- width=32
+- per_step curve
+- 8 iterations
+- prediction_scale=1.0
+- standard convolution
+- training.epochs=60
+
+先训练 baseline：
+
+```powershell
+python train.py `
+  --config configs\comparison\zerodce_baseline_60.yaml `
+  --epochs 60 `
+  --num-workers 2 `
+  --device cuda
+```
+
+如果要复现实验中的 UltraLiteDCE 训练，也可以运行：
+
+```powershell
+python train.py `
+  --config configs\comparison\ultralite_color_safe_gpu_denoise_60.yaml `
+  --epochs 60 `
+  --num-workers 2 `
+  --device cuda
+```
+
+已有 `outputs/color_safe_gpu_denoise/checkpoints/best_psnr.pt` 时可以直接导出 ONNX：
+
+```powershell
+python export_onnx.py `
+  --config configs\comparison\ultralite_color_safe_gpu_denoise_60.yaml `
+  --checkpoint outputs\color_safe_gpu_denoise\checkpoints\best_psnr.pt `
+  --output outputs\onnx\ultralite_color_safe_gpu_denoise.onnx `
+  --height 256 `
+  --width 256 `
+  --warmup 20 `
+  --iterations 100
+```
+
+baseline 训练完成后导出：
+
+```powershell
+python export_onnx.py `
+  --config configs\comparison\zerodce_baseline_60.yaml `
+  --checkpoint outputs\zerodce_baseline_60\checkpoints\best_psnr.pt `
+  --output outputs\onnx\zerodce_baseline_60.onnx `
+  --height 256 `
+  --width 256 `
+  --warmup 20 `
+  --iterations 100
+```
+
+一键生成 eval15 指标、CPU benchmark、ONNX 误差和对比表：
+
+```powershell
+python compare_baseline.py --device cuda
+```
+
+快速 smoke 版本：
+
+```powershell
+python compare_baseline.py --quick --device cuda
+```
+
+输出文件：
+
+```text
+outputs/comparison_60/
+├── comparison_summary.csv
+├── comparison_summary.json
+├── comparison_table.md
+├── ultralitedce_color_safe_gpu_denoise/
+│   ├── evaluation/
+│   └── onnx/
+└── zerodce_style_baseline/
+    ├── evaluation/
+    └── onnx/
+```
+
+如果 baseline checkpoint 还不存在，`compare_baseline.py` 会在 summary 中标记 `missing_checkpoint`，不会伪造 baseline 的 PSNR/SSIM。

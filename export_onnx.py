@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import statistics
 import time
@@ -63,24 +64,24 @@ def export_and_validate(
     opset = int(config.get("onnx", {}).get("opset", 17))
     with torch.inference_mode():
         torch_output = model(sample).numpy()
-    torch.onnx.export(
-        model,
-        sample,
-        output_path,
-        export_params=True,
-        opset_version=opset,
-        do_constant_folding=True,
-        input_names=["input"],
-        output_names=["enhanced"],
-        dynamic_shapes={
-            "image": {
-                0: "batch",
-                2: "height",
-                3: "width",
-            }
+    export_kwargs: dict[str, Any] = {
+        "export_params": True,
+        "opset_version": opset,
+        "do_constant_folding": True,
+        "input_names": ["input"],
+        "output_names": ["enhanced"],
+        "dynamic_axes": {
+            "input": {0: "batch", 2: "height", 3: "width"},
+            "enhanced": {0: "batch", 2: "height", 3: "width"},
         },
-        verbose=False,
-    )
+        "verbose": False,
+    }
+    # The classic exporter plus dynamic_axes is stable across the PyTorch
+    # versions commonly used for this project. Newer PyTorch versions expose a
+    # dynamo flag; forcing False avoids version-specific dynamic_shapes behavior.
+    if "dynamo" in inspect.signature(torch.onnx.export).parameters:
+        export_kwargs["dynamo"] = False
+    torch.onnx.export(model, sample, output_path, **export_kwargs)
     onnx_model = onnx.load(str(output_path))
     onnx.checker.check_model(onnx_model)
     session = ort.InferenceSession(str(output_path), providers=["CPUExecutionProvider"])

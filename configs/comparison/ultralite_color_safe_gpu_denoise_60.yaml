@@ -1,0 +1,76 @@
+model:
+  name: ultralite_dce
+  width: 8
+  num_blocks: 3
+  num_iterations: 4
+  curve_mode: shared
+  prediction_scale: 0.5
+  convolution: depthwise_separable
+  curve_color_mode: coupled
+  curve_chroma_scale: 0.05
+  identity_init: true
+  use_dark_denoise_head: false
+  dark_denoise_threshold: 0.25
+  dark_denoise_strength: 0.05
+
+data:
+  root: data/LOL
+  train_low: our485/low
+  train_high: our485/high
+  test_low: eval15/low
+  test_high: eval15/high
+  val_ratio: 0.1
+  horizontal_flip: true
+  vertical_flip: false
+  rotate_90: true
+  synthetic: false
+  synthetic_train_size: 16
+  synthetic_val_size: 4
+
+loss:
+  spatial: 1.0
+  exposure: 0.3
+  color: 0.5
+  curve_tv: 50.0
+  l1: 2.0
+  ssim: 0.5
+  edge: 0.2
+  chromaticity: 0.0
+  dark_smooth: 0.2
+  saturation: 0.2
+  exposure_target: 0.55
+  dark_threshold: 0.25
+  saturation_threshold: 0.95
+
+training:
+  epochs: 60
+  batch_size: 8
+  crop_size: 256
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  num_workers: 2
+  amp: true
+  amp_dtype: bfloat16
+  grad_clip: 1.0
+  seed: 42
+  device: cuda
+  output_dir: outputs/color_safe_gpu_denoise
+  preview_interval: 5
+  checkpoint_interval: 1
+
+evaluation:
+  output_dir: outputs/comparison_60/ultralite/evaluation
+  lpips: false
+  niqe: false
+
+benchmark:
+  sizes: [256, 512]
+  warmup: 20
+  iterations: 100
+  threads: 1
+
+onnx:
+  opset: 18
+  error_threshold: 0.0001
+  warmup: 20
+  iterations: 100

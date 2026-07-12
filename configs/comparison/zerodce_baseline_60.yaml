@@ -1,0 +1,74 @@
+model:
+  name: ultralite_dce
+  width: 32
+  num_blocks: 7
+  num_iterations: 8
+  curve_mode: per_step
+  prediction_scale: 1.0
+  convolution: standard
+  curve_color_mode: independent
+  curve_chroma_scale: 1.0
+  identity_init: true
+  use_dark_denoise_head: false
+  dark_denoise_threshold: 0.25
+  dark_denoise_strength: 0.05
+
+data:
+  root: data/LOL
+  train_low: our485/low
+  train_high: our485/high
+  test_low: eval15/low
+  test_high: eval15/high
+  val_ratio: 0.1
+  horizontal_flip: true
+  vertical_flip: false
+  rotate_90: true
+  synthetic: false
+
+loss:
+  spatial: 1.0
+  exposure: 1.0
+  color: 0.5
+  curve_tv: 20.0
+  l1: 1.0
+  ssim: 0.2
+  edge: 0.1
+  chromaticity: 1.0
+  dark_smooth: 0.0
+  saturation: 0.1
+  exposure_target: 0.6
+  dark_threshold: 0.25
+  saturation_threshold: 0.95
+
+training:
+  epochs: 60
+  batch_size: 8
+  crop_size: 256
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  num_workers: 2
+  amp: true
+  amp_dtype: bfloat16
+  grad_clip: 1.0
+  seed: 42
+  device: cuda
+  output_dir: outputs/zerodce_baseline_60
+  preview_interval: 5
+  checkpoint_interval: 1
+
+evaluation:
+  output_dir: outputs/comparison_60/zerodce_baseline/evaluation
+  lpips: false
+  niqe: false
+
+benchmark:
+  sizes: [256, 512]
+  warmup: 20
+  iterations: 100
+  threads: 1
+
+onnx:
+  opset: 18
+  error_threshold: 0.0001
+  warmup: 20
+  iterations: 100
