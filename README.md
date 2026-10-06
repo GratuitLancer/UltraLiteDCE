@@ -23,20 +23,27 @@ The default configuration uses:
 - paired LOL supervision plus zero-reference constraints
 - ONNX export with dynamic batch / height / width
 
+## Real image comparisons
+
+**Input → enhanced → GT**, using real paired images from [LOL-v1](https://daooshee.github.io/BMVC2018website/) `eval15`. The middle column is fresh CPU inference from `outputs/color_safe_gpu_denoise/checkpoints/best_psnr.pt`, selected at epoch **28** of the documented 60-epoch run. GT is the paired normal-light capture and is used only for evaluation.
+
+These are the **first four filenames in lexicographic order**, without selection by quality score. All three columns retain the native **600 × 400** pixels, with no crops, resizing, or extra post-processing. Click a figure to inspect it at full size.
+
+![LOL-v1 eval15 1.png: original low-light input, UltraLiteDCE enhanced output, and paired normal-light GT](docs/assets/comparisons/lol_eval15_1.png)
+
+![LOL-v1 eval15 111.png: original low-light input, UltraLiteDCE enhanced output, and paired normal-light GT](docs/assets/comparisons/lol_eval15_111.png)
+
+![LOL-v1 eval15 146.png: original low-light input, UltraLiteDCE enhanced output, and paired normal-light GT](docs/assets/comparisons/lol_eval15_146.png)
+
+![LOL-v1 eval15 179.png: original low-light input, UltraLiteDCE enhanced output, and paired normal-light GT](docs/assets/comparisons/lol_eval15_179.png)
+
+The examples include stronger and weaker results; brightness and color can still differ from GT, especially on `179.png`. Figure metrics use the repository's PSNR / SSIM implementation on float32 output before 8-bit image conversion. See [asset provenance and regeneration](docs/assets/README.md) for checkpoint / source hashes and the generation command.
+
 ## Architecture at a glance
 
-```mermaid
-flowchart LR
-    A[Low-light RGB] --> B[0.5× resize]
-    B --> C[3×3 stem conv]
-    C --> D[3 × depthwise-separable blocks]
-    D --> E[1×1 curve head]
-    E --> F[Coupled RGB curve]
-    F --> G[Upsample curve]
-    A --> H[4 × curve enhancement]
-    G --> H
-    H --> I[Enhanced RGB]
-```
+![UltraLiteDCE architecture: half-resolution curve estimator, coupled RGB parameterization, curve upsampling, and four full-resolution enhancement iterations](docs/assets/architecture.svg)
+
+The diagram shows the **707-parameter comparison configuration**, including layer parameter counts, tensor dimensions, and the original-image branch. One RGB curve map is reused for all four steps; the optional dark-region denoise head is disabled. [Open the vector diagram](docs/assets/architecture.svg).
 
 The enhancement equation is:
 
@@ -191,5 +198,5 @@ The current documented test suite covers model shape / range, odd image sizes, p
 ## Notes
 
 - The comparison model in this repository is a **ZeroDCE-style baseline**, not a claim of exact reproduction of every detail from the original Zero-DCE implementation.
-- Dataset files, generated outputs, checkpoints, and ONNX binaries are intentionally excluded from Git.
+- Full datasets, experiment outputs, checkpoints, and ONNX binaries are intentionally excluded from Git; the four documented comparison figures are included under `docs/assets/`.
 - The project is intended as a compact LLIE / deployment experiment rather than a state-of-the-art benchmark claim.

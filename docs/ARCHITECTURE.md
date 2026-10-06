@@ -18,34 +18,9 @@ The model therefore prioritizes:
 
 ## Forward path
 
-```text
-Input RGB image (B × 3 × H × W)
-        │
-        ├──────────────────────────────────────────────┐
-        │                                              │
-        ▼                                              │
-0.5× bilinear resize                                   │
-        │                                              │
-        ▼                                              │
-3×3 stem convolution: 3 → 8                           │
-        │                                              │
-        ▼                                              │
-3 × depthwise-separable blocks                         │
-        │                                              │
-        ▼                                              │
-1×1 curve head: 8 → 3                                  │
-        │                                              │
-        ▼                                              │
-coupled RGB curve parameterization                     │
-        │                                              │
-        ▼                                              │
-bilinear upsample to H × W                             │
-        │                                              │
-        └──────────────► 4 iterative curve steps ◄─────┘
-                               │
-                               ▼
-                        Enhanced RGB image
-```
+![UltraLiteDCE architecture with tensor dimensions, layer parameter counts, coupled RGB curves, and the full-resolution input branch](assets/architecture.svg)
+
+[Open the vector diagram](assets/architecture.svg). This is the 707-parameter comparison configuration, with the optional dark-region denoise head disabled. For odd image dimensions, the prediction grid is `floor(H / 2) × floor(W / 2)`; the curve is resized back to the exact original dimensions.
 
 ## Curve formulation
 

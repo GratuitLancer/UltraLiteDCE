@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="972" viewBox="0 0 1600 972" role="img" aria-labelledby="title description">
+  <title id="title">UltraLiteDCE architecture — 707-parameter comparison configuration</title>
+  <desc id="description">The original RGB image branches into half-resolution curve prediction and full-resolution enhancement. A stem convolution, three depthwise-separable blocks and a curve head predict coupled RGB curves. The curve is upsampled and reused for four enhancement iterations before clamping to zero through one.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#36536e"/>
+    </marker>
+    <marker id="tealArrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#087e8b"/>
+    </marker>
+    <style>
+      text { font-family: 'Segoe UI', Arial, sans-serif; fill: #142d46; }
+      .title { font-size: 42px; font-weight: 700; }
+      .subtitle { font-size: 24px; fill: #53677c; }
+      .lane { font-size: 23px; font-weight: 700; letter-spacing: 1.5px; }
+      .label { font-size: 27px; font-weight: 650; }
+      .body { font-size: 23px; }
+      .small { font-size: 21px; fill: #53677c; }
+      .math { font-family: 'Cambria Math', 'Segoe UI', Arial, sans-serif; font-size: 24px; }
+      .node { fill: #ffffff; stroke: #a6bacb; stroke-width: 2; }
+      .path { fill: none; stroke: #36536e; stroke-width: 3; stroke-linejoin: round; marker-end: url(#arrow); }
+      .curve { fill: none; stroke: #087e8b; stroke-width: 3; stroke-linejoin: round; marker-end: url(#tealArrow); }
+    </style>
+  </defs>
+  <rect width="1600" height="972" fill="#ffffff"/>
+  <text x="48" y="70" class="title">UltraLiteDCE</text>
+  <text x="48" y="112" class="subtitle">Half-resolution curve estimation · full-resolution image enhancement</text>
+  <rect x="1110" y="38" width="442" height="62" rx="12" fill="#142d46"/>
+  <text x="1331" y="78" text-anchor="middle" style="fill:white;font-size:26px;font-weight:650">707 parameters · width 8 · 4 steps</text>
+
+  <rect x="40" y="156" width="1520" height="270" rx="18" fill="#f0f5fa" stroke="#d6e1ec"/>
+  <text x="72" y="199" class="lane">CURVE ESTIMATOR</text>
+  <text x="1520" y="199" text-anchor="end" class="small">Spatial size h × w · no BatchNorm</text>
+
+  <rect x="72" y="232" width="212" height="134" rx="12" class="node"/>
+  <text x="178" y="269" text-anchor="middle" class="label">Resize 0.5×</text>
+  <text x="178" y="306" text-anchor="middle" class="body">Bilinear</text>
+  <text x="178" y="344" text-anchor="middle" class="small">B × 3 × h × w</text>
+  <path d="M 284 299 H 312" class="path"/>
+
+  <rect x="316" y="232" width="230" height="134" rx="12" class="node"/>
+  <text x="431" y="269" text-anchor="middle" class="label">Stem conv</text>
+  <text x="431" y="306" text-anchor="middle" class="body">3×3 · 3 → 8 · ReLU</text>
+  <text x="431" y="344" text-anchor="middle" class="small">224 parameters</text>
+  <path d="M 546 299 H 574" class="path"/>
+
+  <rect x="578" y="232" width="306" height="134" rx="12" class="node"/>
+  <text x="731" y="269" text-anchor="middle" class="label">3 × separable blocks</text>
+  <text x="731" y="305" text-anchor="middle" class="body">DW 3×3 → PW 1×1</text>
+  <text x="731" y="336" text-anchor="middle" class="small">ReLU after each conv · 8 → 8</text>
+  <text x="731" y="401" text-anchor="middle" class="small">152 parameters / block · 456 total</text>
+  <path d="M 884 299 H 912" class="path"/>
+
+  <rect x="916" y="232" width="230" height="134" rx="12" class="node"/>
+  <text x="1031" y="269" text-anchor="middle" class="label">Curve head</text>
+  <text x="1031" y="306" text-anchor="middle" class="body">1×1 conv · 8 → 3</text>
+  <text x="1031" y="344" text-anchor="middle" class="small">27 parameters · logits Z</text>
+  <path d="M 1146 299 H 1174" class="path"/>
+
+  <rect x="1178" y="232" width="340" height="134" rx="12" fill="#e9f7f5" stroke="#78b6b3" stroke-width="2"/>
+  <text x="1348" y="264" text-anchor="middle" class="label">Coupled RGB curve</text>
+  <text x="1348" y="295" text-anchor="middle" class="math">μ = mean<tspan baseline-shift="sub" font-size="16">RGB</tspan>(Z)</text>
+  <text x="1348" y="323" text-anchor="middle" class="math">A<tspan baseline-shift="sub" font-size="16">low</tspan> = clamp(tanh(μ)</text>
+  <text x="1348" y="352" text-anchor="middle" class="math">+ 0.05 tanh(Z − μ), −1, 1)</text>
+
+  <rect x="72" y="486" width="240" height="104" rx="12" fill="#142d46"/>
+  <text x="192" y="527" text-anchor="middle" style="fill:white" class="label">Input RGB</text>
+  <text x="192" y="565" text-anchor="middle" style="fill:#dce9f4" class="body">B × 3 × H × W</text>
+  <path d="M 178 486 V 370" class="path"/>
+  <text x="202" y="462" class="small">Estimator input</text>
+
+  <path d="M 1348 366 V 482" class="curve"/>
+  <text x="1326" y="463" text-anchor="end" class="small">A<tspan baseline-shift="sub" font-size="15">low</tspan>: B × 3 × h × w</text>
+  <rect x="1206" y="486" width="312" height="104" rx="12" fill="#e9f7f5" stroke="#78b6b3" stroke-width="2"/>
+  <text x="1362" y="527" text-anchor="middle" class="label">Upsample curve</text>
+  <text x="1362" y="565" text-anchor="middle" class="body">Bilinear → H × W</text>
+
+  <rect x="40" y="636" width="1520" height="222" rx="18" fill="#f4faf9" stroke="#cce5e0"/>
+  <text x="292" y="677" class="lane">FULL-RESOLUTION ENHANCEMENT</text>
+  <path d="M 192 590 V 755 H 538" class="path"/>
+  <text x="225" y="738" class="small">Original pixels</text>
+  <path d="M 1362 590 V 615 H 1020 V 701" class="curve"/>
+  <text x="1065" y="665" class="small">A: B × 3 × H × W</text>
+
+  <rect x="542" y="705" width="575" height="114" rx="12" fill="#ffffff" stroke="#78b6b3" stroke-width="2"/>
+  <text x="829" y="738" text-anchor="middle" class="label">4 iterations · one shared RGB curve A</text>
+  <text x="829" y="773" text-anchor="middle" class="math">I<tspan baseline-shift="sub" font-size="16">t+1</tspan> = I<tspan baseline-shift="sub" font-size="16">t</tspan> + A ⊙ I<tspan baseline-shift="sub" font-size="16">t</tspan> ⊙ (1 − I<tspan baseline-shift="sub" font-size="16">t</tspan>)</text>
+  <text x="829" y="803" text-anchor="middle" class="small">I₀ = input · t = 0, 1, 2, 3 · final clamp [0, 1]</text>
+  <path d="M 1117 762 H 1242" class="path"/>
+  <rect x="1246" y="710" width="272" height="104" rx="12" fill="#087e8b"/>
+  <text x="1382" y="751" text-anchor="middle" style="fill:white" class="label">Enhanced RGB</text>
+  <text x="1382" y="789" text-anchor="middle" style="fill:#e1f5f2" class="body">B × 3 × H × W</text>
+
+  <text x="48" y="906" class="small">h = floor(H / 2), w = floor(W / 2) · DW: depthwise · PW: pointwise · ⊙: elementwise product</text>
+  <text x="48" y="942" class="small">Comparison configuration: 224 + 3 × 152 + 27 = 707 parameters · optional dark-region denoise head disabled</text>
+</svg>

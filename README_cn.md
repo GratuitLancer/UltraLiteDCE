@@ -10,22 +10,27 @@ I_next = I + A * I * (1 - I)
 
 README 中未实际跑出的质量和速度数值都标为“待测”，不包含伪造实验结果。
 
+## 真实图像对比
+
+下图按 **input → enhanced → GT** 排列，使用 [LOL-v1](https://daooshee.github.io/BMVC2018website/) `eval15` 中的真实低光／正常光配对图像。中间一列由 `outputs/color_safe_gpu_denoise/checkpoints/best_psnr.pt` 重新在 CPU 上推理得到；该 checkpoint 是文档中 60-epoch 训练在第 **28** 轮保存的最佳 PSNR 模型。GT 是配对的正常光拍摄图，仅用于评估。
+
+这里展示**按文件名字典序排列的前四个样本**，没有按质量指标筛选。三列均保留原始 **600 × 400** 像素，不裁剪、不缩放，也不做额外后处理。点击图片可查看原尺寸。
+
+![LOL-v1 eval15 1.png：原始低光输入、UltraLiteDCE 增强结果、正常光 GT](docs/assets/comparisons/lol_eval15_1.png)
+
+![LOL-v1 eval15 111.png：原始低光输入、UltraLiteDCE 增强结果、正常光 GT](docs/assets/comparisons/lol_eval15_111.png)
+
+![LOL-v1 eval15 146.png：原始低光输入、UltraLiteDCE 增强结果、正常光 GT](docs/assets/comparisons/lol_eval15_146.png)
+
+![LOL-v1 eval15 179.png：原始低光输入、UltraLiteDCE 增强结果、正常光 GT](docs/assets/comparisons/lol_eval15_179.png)
+
+这些样本包含效果较好和较弱的情况；增强结果的亮度、颜色仍可能与 GT 不同，`179.png` 尤其明显。图中 PSNR／SSIM 由仓库实现对转换为 8-bit 图像前的 float32 输出计算。[图像来源与复现说明](docs/assets/README.md)包含 checkpoint、原图的 SHA-256 和生成命令。
+
 ## 模型结构
 
-默认 UltraLiteDCE：
+![UltraLiteDCE 架构：半分辨率曲线预测、RGB 耦合、曲线上采样及四次全分辨率增强](docs/assets/architecture.svg)
 
-```text
-RGB input
-  -> 0.5x bilinear resize
-  -> 3x3 stem conv (3 -> width)
-  -> N x depthwise separable conv
-  -> 1x1 curve head
-  -> tanh / coupled curve parameterization
-  -> resize curve to original resolution
-  -> shared/per-step Zero-DCE curve iterations
-  -> optional dark denoise head
-  -> clamp [0, 1]
-```
+图中为 **707 参数的对比实验配置**，标注了各层参数量、张量尺寸和原图支路。共享 RGB 曲线用于四次迭代，曲线在半分辨率预测，增强在原分辨率执行；可选暗区 denoise head 关闭。[查看 SVG 矢量图](docs/assets/architecture.svg)及[详细架构说明](docs/ARCHITECTURE.md)。
 
 默认推荐轻量配置：
 

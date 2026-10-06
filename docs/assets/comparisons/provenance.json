@@ -1,0 +1,103 @@
+{
+  "dataset": "LOL-v1",
+  "split": "eval15",
+  "dataset_source": "https://daooshee.github.io/BMVC2018website/",
+  "selection": "First four PNG filenames in lexicographic order; no metric-based selection",
+  "checkpoint": "outputs/color_safe_gpu_denoise/checkpoints/best_psnr.pt",
+  "checkpoint_sha256": "b8e1a334acfc25481932e8bd5202c11dce2825d91e810e60b921246bf256dc0b",
+  "checkpoint_epoch": 28,
+  "configured_training_epochs": 60,
+  "model": {
+    "name": "ultralite_dce",
+    "width": 8,
+    "num_blocks": 3,
+    "num_iterations": 4,
+    "curve_mode": "shared",
+    "prediction_scale": 0.5,
+    "convolution": "depthwise_separable",
+    "curve_color_mode": "coupled",
+    "curve_chroma_scale": 0.05,
+    "identity_init": true,
+    "use_dark_denoise_head": false,
+    "dark_denoise_threshold": 0.25,
+    "dark_denoise_strength": 0.05
+  },
+  "parameters": 707,
+  "inference": {
+    "device": "cpu",
+    "dtype": "float32",
+    "torch": "2.12.1+cu130"
+  },
+  "display": "Native RGB pixels; output clamped and rounded to 8-bit by tensor_to_pil; no other processing",
+  "metrics": "Repository paired_metrics on float32 output before 8-bit conversion",
+  "samples": [
+    {
+      "name": "1.png",
+      "input": "data/LOL/eval15/low/1.png",
+      "input_sha256": "12f3b5d4c3823dbf2503e825944213974248e788726b6f7aebb275b644c76c89",
+      "gt": "data/LOL/eval15/high/1.png",
+      "gt_sha256": "e47ae1d4a84c19cabdc1092a4bab1f8c99f7909e9783ba2930580d7f2cf7a856",
+      "native_size": [
+        600,
+        400
+      ],
+      "enhanced_rgb_sha256": "9dc156ef527b489051566756cae48133b7caed87cb762bc3061aebbc6fa39625",
+      "figure": "docs/assets/comparisons/lol_eval15_1.png",
+      "figure_sha256": "585fec8fe478751cc781156a1217f679c9b3e35cdb1f5f230be2732077db1836",
+      "psnr": 22.150525973568023,
+      "ssim": 0.6966058611869812,
+      "mae": 0.06216525658965111
+    },
+    {
+      "name": "111.png",
+      "input": "data/LOL/eval15/low/111.png",
+      "input_sha256": "5f10ef298a617c239e0728610a565416b4503ed40384cc9710e8bbd55f22ef47",
+      "gt": "data/LOL/eval15/high/111.png",
+      "gt_sha256": "35f002dcc27712b1662e764c75326e7576205ca191440ae31b5ae98d999f530a",
+      "native_size": [
+        600,
+        400
+      ],
+      "enhanced_rgb_sha256": "d0e0c20e909cb8b993275bde9e67e5c5b5303ff65599f3f1aa73b5aed321cb3e",
+      "figure": "docs/assets/comparisons/lol_eval15_111.png",
+      "figure_sha256": "0fde2fea4844635467b196ac908a65c45816c85b47047f3cf65a537a0950f873",
+      "psnr": 19.137376257059298,
+      "ssim": 0.6317402124404907,
+      "mae": 0.0968308076262474
+    },
+    {
+      "name": "146.png",
+      "input": "data/LOL/eval15/low/146.png",
+      "input_sha256": "6a955842b2f8dde700487973958ee1f99c43123764d579744b2ff517fac5870e",
+      "gt": "data/LOL/eval15/high/146.png",
+      "gt_sha256": "2384b23a21e8e1e552019324a412345a703ce166227b0df8bc5bd3200df2e9ce",
+      "native_size": [
+        600,
+        400
+      ],
+      "enhanced_rgb_sha256": "311438675234f8a2852ad93dc6fbb1556a971f11d4c60d0582054d4b57d54907",
+      "figure": "docs/assets/comparisons/lol_eval15_146.png",
+      "figure_sha256": "1ba2654f8129c417197db439f38175d1e5a21bfa4f8970ab1e5513b99dd02c3d",
+      "psnr": 25.005995846218312,
+      "ssim": 0.7336351275444031,
+      "mae": 0.04006139189004898
+    },
+    {
+      "name": "179.png",
+      "input": "data/LOL/eval15/low/179.png",
+      "input_sha256": "57897f167aa7fb5d3dc0759b4406c038023d97a6dd154bb9e5cf28043bdea75c",
+      "gt": "data/LOL/eval15/high/179.png",
+      "gt_sha256": "8c65ac7c4398920a47edca40e7a1cf6f4bf0e5c051db96e59045ab2e54d5f2de",
+      "native_size": [
+        600,
+        400
+      ],
+      "enhanced_rgb_sha256": "3389726402b54a64c221c9b1579c673ea33f6db72018549899ed050102ed8177",
+      "figure": "docs/assets/comparisons/lol_eval15_179.png",
+      "figure_sha256": "64fb631ca17a2dc962bfcc3d7013b41bd55e5bbafcd20eee08201712e38c0f27",
+      "psnr": 12.992345660679456,
+      "ssim": 0.5516229867935181,
+      "mae": 0.20947374403476715
+    }
+  ]
+}
