@@ -1,163 +1,82 @@
 # UltraLiteDCE
 
-UltraLiteDCE is a lightweight PyTorch project for low-light image enhancement (LLIE) on the LOL paired dataset. It keeps the core Zero-DCE curve formulation:
+A tiny PyTorch low-light image enhancement model built around the Zero-DCE curve formulation, redesigned for fast CPU / ONNX inference.
+
+> **707 parameters · 10.6M MACs @ 256×256 · 1.34 ms ONNX CPU @ 256×256**
+
+UltraLiteDCE keeps the iterative curve-enhancement idea of Zero-DCE, but compresses the curve estimator with half-resolution prediction, depthwise-separable convolutions, a shared curve map, and fewer enhancement iterations.
+
+[中文说明](README_cn.md) · [Architecture](docs/ARCHITECTURE.md) · [Training & inference](docs/USAGE.md) · [Benchmarks](docs/BENCHMARKS.md)
+
+## Why this project
+
+The goal is not to maximize model size or benchmark score. It is to explore how far a curve-based LLIE model can be compressed while remaining practical, trainable, exportable, and visually stable.
+
+The default configuration uses:
+
+- **707 trainable parameters**
+- **3 depthwise-separable blocks**
+- **4 curve iterations**
+- **one shared RGB curve map**
+- **0.5× curve-prediction resolution**
+- **coupled color parameterization** to reduce fixed color bias
+- paired LOL supervision plus zero-reference constraints
+- ONNX export with dynamic batch / height / width
+
+## Architecture at a glance
+
+```mermaid
+flowchart LR
+    A[Low-light RGB] --> B[0.5× resize]
+    B --> C[3×3 stem conv]
+    C --> D[3 × depthwise-separable blocks]
+    D --> E[1×1 curve head]
+    E --> F[Coupled RGB curve]
+    F --> G[Upsample curve]
+    A --> H[4 × curve enhancement]
+    G --> H
+    H --> I[Enhanced RGB]
+```
+
+The enhancement equation is:
 
 ```text
 I_next = I + A * I * (1 - I)
 ```
 
-The goal is to keep the model small and deployment-friendly while improving visual naturalness, especially in dark regions where color noise and over-enhancement often appear.
+For implementation details, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-The original Chinese README has been preserved as [README_cn.md](README_cn.md).
+## Measured result
 
-## Highlights
+Evaluation below is from the current repository's 60-epoch LOL-v1 `eval15` comparison.
 
-- PyTorch implementation of a lightweight Zero-DCE-style LLIE model.
-- LOL-v1 paired dataset support.
-- Shared and per-step curve modes.
-- Half-resolution curve prediction.
-- Depthwise separable convolution support.
-- No BatchNorm in the default model.
-- Color-safe curve parameterization.
-- Dark-region smoothness loss for noise suppression.
-- Paired supervision with L1, SSIM, and Sobel edge losses.
-- Training, evaluation, inference, benchmark, ONNX export, and comparison scripts.
-- ONNX Runtime validation with dynamic batch/height/width support.
-- ZeroDCE-style baseline comparison workflow.
+| Model | Params | MACs @256 | PSNR | SSIM | PyTorch CPU @256 | ONNX CPU @256 |
+|---|---:|---:|---:|---:|---:|---:|
+| **UltraLiteDCE** | **707** | **10.6M** | **18.5606** | 0.5509 | **3.60 ms** | **1.34 ms** |
+| ZeroDCE-style baseline | 66,424 | 4.33B | 18.1758 | **0.5561** | 79.71 ms | 9.12 ms |
 
-## Model Architecture
+UltraLiteDCE is roughly **94× smaller by parameter count** and requires about **408× fewer MACs** than the baseline configuration used here, while reaching slightly higher PSNR in this run.
 
-Default UltraLiteDCE:
+The baseline retains a small SSIM advantage, so this is best read as a speed / compactness trade-off rather than a claim of universal image-quality superiority.
 
-```text
-RGB input: B x 3 x H x W
-  -> 0.5x bilinear resize
-  -> 3x3 stem conv: 3 -> width
-  -> N x depthwise separable conv
-  -> 1x1 curve head
-  -> tanh / coupled curve parameterization
-  -> upsample curve map to H x W
-  -> shared or per-step Zero-DCE curve iterations
-  -> optional dark denoise head
-  -> clamp to [0, 1]
-```
+Full numbers and measurement notes: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
-Default optimized configuration:
+## Quick start
 
-```yaml
-model:
-  name: ultralite_dce
-  width: 8
-  num_blocks: 3
-  num_iterations: 4
-  curve_mode: shared
-  prediction_scale: 0.5
-  convolution: depthwise_separable
-  curve_color_mode: coupled
-  curve_chroma_scale: 0.05
-  identity_init: true
-  use_dark_denoise_head: false
-```
+### 1. Install
 
-## Difference from the ZeroDCE-style Baseline
-
-Compared with the heavier ZeroDCE-style baseline used in this repository:
-
-- width is reduced from 32 to 8;
-- standard convolutions are replaced by depthwise separable convolutions;
-- curve maps are predicted at half resolution;
-- the default model predicts one shared RGB curve map instead of 8 per-step RGB maps;
-- curve iterations are reduced from 8 to 4;
-- BatchNorm is not used;
-- forward inference directly returns the enhanced image;
-- color-safe initialization and curve coupling reduce fixed color bias;
-- dark-region smoothness and saturation losses reduce noise and overexposure.
-
-The baseline configuration is available at:
-
-```text
-configs/comparison/zerodce_baseline_60.yaml
-```
-
-## Project Structure
-
-```text
-configs/
-├── ultralite_dce.yaml
-├── ultralite_dce_denoise.yaml
-├── baseline_dce.yaml
-├── ablation/
-└── comparison/
-    ├── ultralite_color_safe_gpu_denoise_60.yaml
-    └── zerodce_baseline_60.yaml
-
-models/
-├── blocks.py
-├── curve.py
-└── ultralite_dce.py
-
-losses/
-├── zero_reference.py
-├── supervised.py
-└── combined.py
-
-datasets/
-└── lol_dataset.py
-
-utils/
-├── benchmark.py
-├── checkpoint.py
-├── config.py
-├── image.py
-├── metrics.py
-└── seed.py
-
-train.py
-evaluate.py
-infer.py
-benchmark.py
-export_onnx.py
-compare_baseline.py
-quantize_onnx.py
-tests/
-```
-
-## Environment Setup
-
-Windows PowerShell:
-
-```powershell
+```bash
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+# Windows: .venv\Scripts\activate
+# Linux/macOS: source .venv/bin/activate
+
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Linux/macOS:
+For GPU training, install the PyTorch build matching your CUDA environment.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-For GPU training, install the PyTorch build that matches your CUDA driver. Optional metrics:
-
-```bash
-pip install lpips
-pip install pyiqa
-```
-
-For ONNX export and validation:
-
-```bash
-pip install onnx onnxruntime onnxscript
-```
-
-## LOL Dataset Layout
-
-Default expected layout:
+### 2. Prepare LOL-v1
 
 ```text
 data/LOL/
@@ -169,342 +88,108 @@ data/LOL/
     └── high/
 ```
 
-YAML fields:
+### 3. Train
 
-```yaml
-data:
-  root: data/LOL
-  train_low: our485/low
-  train_high: our485/high
-  test_low: eval15/low
-  test_high: eval15/high
-```
-
-Low/high images are matched by filename stem. Training uses paired random crop and paired geometric augmentation, so low/high alignment is preserved. Evaluation and inference keep the original image resolution.
-
-## Loss Functions
-
-Each loss component is logged separately.
-
-Zero-reference losses:
-
-- `spatial`: local spatial consistency.
-- `exposure`: exposure control toward `exposure_target`.
-- `color`: RGB channel mean consistency.
-- `curve_tv`: curve map total variation smoothness.
-
-Paired losses:
-
-- `l1`: pixel reconstruction loss.
-- `ssim`: structural similarity loss.
-- `edge`: Sobel gradient edge preservation.
-- `chromaticity`: optional RGB ratio constraint.
-
-Noise and overexposure protection:
-
-- `dark_smooth`: suppresses high-frequency variations in dark input regions.
-- `saturation`: `mean(relu(enhanced - saturation_threshold))`.
-
-Optimized loss configuration:
-
-```yaml
-loss:
-  spatial: 1.0
-  exposure: 0.3
-  color: 0.5
-  curve_tv: 50.0
-  l1: 2.0
-  ssim: 0.5
-  edge: 0.2
-  chromaticity: 0.0
-  dark_smooth: 0.2
-  saturation: 0.2
-  exposure_target: 0.55
-  dark_threshold: 0.25
-  saturation_threshold: 0.95
-```
-
-## Training
-
-Recommended optimized UltraLiteDCE training:
-
-```powershell
-python train.py `
-  --config configs\ultralite_dce_denoise.yaml `
-  --epochs 100 `
-  --batch-size 8 `
-  --num-workers 2 `
-  --device cuda `
-  --output-dir outputs\ultralite_dce_denoise
-```
-
-Resume training:
-
-```powershell
-python train.py `
-  --config configs\ultralite_dce_denoise.yaml `
-  --resume outputs\ultralite_dce_denoise\checkpoints\last.pt
-```
-
-The 60-epoch UltraLiteDCE configuration used for the final comparison:
-
-```powershell
-python train.py `
-  --config configs\comparison\ultralite_color_safe_gpu_denoise_60.yaml `
-  --epochs 60 `
-  --num-workers 2 `
+```bash
+python train.py \
+  --config configs/comparison/ultralite_color_safe_gpu_denoise_60.yaml \
+  --epochs 60 \
   --device cuda
 ```
 
-The 60-epoch ZeroDCE-style baseline:
+### 4. Evaluate
 
-```powershell
-python train.py `
-  --config configs\comparison\zerodce_baseline_60.yaml `
-  --epochs 60 `
-  --num-workers 2 `
+```bash
+python evaluate.py \
+  --config configs/comparison/ultralite_color_safe_gpu_denoise_60.yaml \
+  --checkpoint outputs/color_safe_gpu_denoise/checkpoints/best_psnr.pt \
   --device cuda
 ```
 
-Training outputs:
+### 5. Run inference
+
+```bash
+python infer.py \
+  --checkpoint outputs/color_safe_gpu_denoise/checkpoints/best_psnr.pt \
+  --input path/to/low.png \
+  --output outputs/infer/enhanced.png
+```
+
+More commands: [docs/USAGE.md](docs/USAGE.md).
+
+## Repository layout
 
 ```text
-outputs/<run_name>/
-├── checkpoints/
-│   ├── last.pt
-│   ├── best.pt
-│   ├── best_psnr.pt
-│   ├── best_ssim.pt
-│   └── final.pt
-├── previews/
-│   ├── epoch_XXXX_low_enhanced_gt.png
-│   ├── epoch_XXXX_enhanced.png
-│   └── epoch_XXXX_curve_map.png
-├── tensorboard/
-├── train_log.csv
-├── train_loss.csv
-├── validation_loss.csv
-└── resolved_config.yaml
+UltraLiteDCE/
+├── configs/               # model / experiment configurations
+│   ├── ablation/
+│   └── comparison/
+├── datasets/              # LOL paired dataset + synthetic smoke data
+├── losses/                # zero-reference and supervised losses
+├── models/                # UltraLiteDCE, curve operator, conv blocks
+├── tests/                 # model, dataset, loss, ONNX and smoke tests
+├── utils/                 # config, metrics, images, checkpoints, benchmark
+├── docs/                  # architecture, usage and benchmark notes
+├── train.py
+├── evaluate.py
+├── infer.py
+├── benchmark.py
+├── export_onnx.py
+├── quantize_onnx.py
+└── compare_baseline.py
 ```
 
-`best.pt` and `best_psnr.pt` are selected by validation PSNR. `best_ssim.pt` is selected by validation SSIM.
+## Core design decisions
 
-## Evaluation
+| Decision | UltraLiteDCE | Motivation |
+|---|---|---|
+| Feature width | 8 | minimize parameters and activation cost |
+| Conv type | depthwise separable | reduce compute |
+| Curve prediction | 0.5× resolution | reduce spatial cost |
+| Curve mode | shared | predict 3 channels instead of one map per iteration |
+| Iterations | 4 | reduce iterative compute |
+| Color mode | coupled | limit independent RGB drift |
+| BatchNorm | none | simpler deployment and small-batch training |
 
-Evaluate on LOL eval15:
+## Training objective
 
-```powershell
-python evaluate.py `
-  --config configs\ultralite_dce_denoise.yaml `
-  --checkpoint outputs\ultralite_dce_denoise\checkpoints\best.pt `
-  --device cuda `
-  --output-dir outputs\ultralite_dce_denoise\evaluation
-```
+The training setup combines:
 
-Saved outputs:
-
-```text
-evaluation/
-├── enhanced/
-├── comparisons/
-├── per_image_metrics.csv
-└── summary.json
-```
-
-Metrics include:
-
-- PSNR
+- spatial consistency
+- exposure control
+- RGB color consistency
+- curve total variation
+- paired L1 reconstruction
 - SSIM
-- MAE
-- parameters
-- checkpoint size
-- MACs
-- CPU inference time
-- FPS
+- Sobel edge preservation
+- dark-region smoothness
+- saturation suppression
 
-Optional metrics:
+Each component is logged independently during training.
 
-```powershell
-python evaluate.py --config CONFIG --checkpoint CKPT --lpips --niqe
-```
+## Deployment
 
-## Inference
+The repository includes:
 
-Single image:
+- PyTorch CPU benchmarking
+- ONNX export
+- ONNX Runtime validation
+- dynamic batch / height / width
+- optional static QDQ INT8 preparation
+- output consistency checks between PyTorch and ONNX
 
-```powershell
-python infer.py `
-  --checkpoint outputs\ultralite_dce_denoise\checkpoints\best.pt `
-  --input path\to\low.png `
-  --output outputs\infer\enhanced.png
-```
-
-Folder:
-
-```powershell
-python infer.py `
-  --checkpoint outputs\ultralite_dce_denoise\checkpoints\best.pt `
-  --input data\LOL\eval15\low `
-  --output outputs\infer_eval15
-```
-
-## CPU Benchmark
-
-```powershell
-python benchmark.py `
-  --config configs\ultralite_dce_denoise.yaml `
-  --checkpoint outputs\ultralite_dce_denoise\checkpoints\best.pt `
-  --sizes 256 512 `
-  --warmup 20 `
-  --iterations 100 `
-  --threads 1
-```
-
-Benchmark uses batch size 1, `torch.inference_mode()`, warm-up iterations, and `time.perf_counter()`.
-
-## ONNX Export
-
-Export and validate UltraLiteDCE:
-
-```powershell
-python export_onnx.py `
-  --config configs\comparison\ultralite_color_safe_gpu_denoise_60.yaml `
-  --checkpoint outputs\color_safe_gpu_denoise\checkpoints\best_psnr.pt `
-  --output outputs\onnx\ultralite_color_safe_gpu_denoise.onnx `
-  --height 256 `
-  --width 256 `
-  --warmup 20 `
-  --iterations 100
-```
-
-Export and validate the ZeroDCE-style baseline:
-
-```powershell
-python export_onnx.py `
-  --config configs\comparison\zerodce_baseline_60.yaml `
-  --checkpoint outputs\zerodce_baseline_60\checkpoints\best_psnr.pt `
-  --output outputs\onnx\zerodce_baseline_60.onnx `
-  --height 256 `
-  --width 256 `
-  --warmup 20 `
-  --iterations 100
-```
-
-ONNX export uses:
-
-- opset 18 by default;
-- input name: `input`;
-- output name: `enhanced`;
-- dynamic batch, height, and width;
-- ONNX checker validation;
-- ONNX Runtime CPU output comparison;
-- ONNX Runtime CPU benchmark.
-
-The export report is saved next to the `.onnx` file as `.json`.
-
-Dynamic INT8 quantization is not claimed to be effective for this convolution-heavy model. Static QDQ quantization can be prepared with representative low-light calibration images:
-
-```powershell
-python quantize_onnx.py `
-  --model outputs\onnx\ultralite_color_safe_gpu_denoise.onnx `
-  --output outputs\onnx\ultralite_color_safe_gpu_denoise_int8.onnx `
-  --calibration-images data\LOL\our485\low `
-  --limit 100
-```
-
-## 60-Epoch UltraLiteDCE vs ZeroDCE-style Baseline
-
-Run the full comparison:
-
-```powershell
-python compare_baseline.py --device cuda
-```
-
-Quick smoke comparison:
-
-```powershell
-python compare_baseline.py --quick --device cuda
-```
-
-Outputs:
-
-```text
-outputs/comparison_60/
-├── comparison_summary.csv
-├── comparison_summary.json
-├── comparison_table.md
-├── ultralitedce_color_safe_gpu_denoise/
-│   ├── evaluation/
-│   └── onnx/
-└── zerodce_style_baseline/
-    ├── evaluation/
-    └── onnx/
-```
-
-Final measured comparison from the current workspace:
-
-| Model | Curve Mode | Iterations | Scale | Params | MACs 256 | PSNR | SSIM | MAE | PyTorch CPU 256 ms | ONNX CPU 256 ms |
-|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| UltraLiteDCE color_safe_gpu_denoise | shared | 4 | 0.5 | 707 | 10,616,832 | 18.5606 | 0.5509 | 0.1210 | 3.5953 | 1.3367 |
-| ZeroDCE-style baseline | per_step | 8 | 1.0 | 66,424 | 4,334,813,184 | 18.1758 | 0.5561 | 0.1164 | 79.7110 | 9.1191 |
-
-Additional 512x512 PyTorch CPU benchmark:
-
-| Model | CPU 512 ms | FPS 512 |
-|---|---:|---:|
-| UltraLiteDCE color_safe_gpu_denoise | 14.7501 | 67.7964 |
-| ZeroDCE-style baseline | 307.8673 | 3.2482 |
-
-ONNX validation errors:
-
-| Model | Max Abs Error | Dynamic Max Abs Error |
-|---|---:|---:|
-| UltraLiteDCE color_safe_gpu_denoise | 2.38e-7 | 2.98e-7 |
-| ZeroDCE-style baseline | 2.98e-7 | 3.58e-7 |
-
-Notes:
-
-- Both models were trained for 60 epochs.
-- Metrics are measured on LOL eval15.
-- CPU timing uses batch size 1.
-- ONNX timing uses ONNX Runtime CPUExecutionProvider.
-- The baseline has slightly higher SSIM and lower MAE in this run, while UltraLiteDCE has higher PSNR and is dramatically smaller/faster.
+The measured ONNX max absolute error for UltraLiteDCE is on the order of `1e-7` in the current comparison.
 
 ## Tests
 
-Run all tests:
-
-```powershell
+```bash
 pytest -q
 ```
 
-Current verified result:
+The current documented test suite covers model shape / range, odd image sizes, paired crop alignment, finite losses, gradients, checkpointing, ONNX consistency, inference integration, and a synthetic training smoke test.
 
-```text
-22 passed
-```
+## Notes
 
-The test suite covers:
-
-- model shape and output range;
-- shared and per-step curve modes;
-- odd image sizes;
-- paired crop alignment;
-- finite losses;
-- backward gradients;
-- checkpoint save/load;
-- ONNX export and output consistency;
-- single-image inference integration;
-- synthetic training smoke test.
-
-## Troubleshooting
-
-- `CUDA was requested but is not available`: install a CUDA-enabled PyTorch build or use `--device cpu`.
-- Windows DataLoader hangs: retry with `--num-workers 0`.
-- Purple or strong color cast: do not resume old independent RGB curve checkpoints; retrain with the coupled curve configuration.
-- Dark-region color noise: use the optimized denoise config and inspect `dark_smooth`, `curve_tv`, and preview images.
-- Overexposure: reduce `loss.exposure`, reduce `exposure_target`, or increase `loss.saturation`.
-- Low PSNR/SSIM: verify LOL low/high pairing and dataset paths.
-- ONNX package missing: install `onnx`, `onnxruntime`, and `onnxscript`.
-- ONNX mismatch: ensure the checkpoint and config match exactly.
-
+- The comparison model in this repository is a **ZeroDCE-style baseline**, not a claim of exact reproduction of every detail from the original Zero-DCE implementation.
+- Dataset files, generated outputs, checkpoints, and ONNX binaries are intentionally excluded from Git.
+- The project is intended as a compact LLIE / deployment experiment rather than a state-of-the-art benchmark claim.
